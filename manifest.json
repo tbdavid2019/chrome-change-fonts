@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Font Changer",
+  "name": "改字體 - Font Changer",
   "version": "1.0",
-  "description": "Change the font family of any website.",
+  "description": "Change the font family of any website. 用你喜歡的字體閱讀網站",
   "permissions": [ "activeTab", "storage","fontSettings"],
   "action": {
     "default_popup": "popup.html",

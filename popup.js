@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (result.isEnabled !== undefined) {
         enableCheckbox.checked = result.isEnabled;
       }
+      updateFont(); // 立即應用已保存的設置
     });
   });
 

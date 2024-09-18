@@ -1,6 +1,6 @@
 # Font Changer Chrome Extension
 
-Font Changer 是一個簡單而強大的 Chrome 擴展，允許用戶輕鬆更改任何網站的字體。
+Oli Font Changer 是一個簡單而強大的 Chrome 擴展，允許用戶輕鬆更改任何網站的字體。
 
 ## 功能
 

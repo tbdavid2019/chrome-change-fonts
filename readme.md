@@ -2,6 +2,8 @@
 
 Oli Font Changer 是一個簡單而強大的 Chrome 擴展，允許用戶輕鬆更改任何網站的字體。
 
+![alt text](image.png)
+
 ## 功能
 
 - 從系統可用的所有字體中選擇

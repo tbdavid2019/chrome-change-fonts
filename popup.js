@@ -72,17 +72,18 @@ document.addEventListener('DOMContentLoaded', function () {
       .forEach(function (font) {
         const option = document.createElement('option');
         option.text = font.displayName;
-        option.value = font.fontId;
+        option.value = font.displayName;
+        option.dataset.fontId = font.fontId;
         fontSelect.add(option);
       });
 
     // 從存儲中加載設置
     chrome.storage.sync.get(['selectedFont', 'isEnabled'], function (result) {
       if (result.selectedFont) {
-        const hasStoredFont = Array.from(fontSelect.options).some(
-          (option) => option.value === result.selectedFont
-        );
-        fontSelect.value = hasStoredFont ? result.selectedFont : '';
+        const matchedOption = Array.from(fontSelect.options).find(function (option) {
+          return option.value === result.selectedFont || option.dataset.fontId === result.selectedFont;
+        });
+        fontSelect.value = matchedOption ? matchedOption.value : '';
       }
       if (result.isEnabled !== undefined) {
         enableCheckbox.checked = result.isEnabled;

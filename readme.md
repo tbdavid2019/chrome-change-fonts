@@ -1,57 +1,90 @@
 # Font Changer Chrome Extension
 
-Oli Font Changer 是一個簡單而強大的 Chrome 擴展，允許用戶輕鬆更改任何網站的字體。
+Oli Font Changer 是一個用來替換網頁字體的 Chrome/Brave 擴充套件，讓你可以用自己系統裡已安裝的字體閱讀網站內容。
 
 ![alt text](image.png)
 
 ## 功能
 
-- 從系統可用的所有字體中選擇
-- 啟用/禁用字體更改
-- 即時預覽字體更改
-- 設置會自動保存
+- 從系統可用字體中挑選要套用的字體
+- 啟用或停用目前分頁的字體替換
+- 在 popup 內即時預覽字體效果
+- 將設定儲存在 `chrome.storage.sync`
+- 支援一般頁面與多數 iframe 內容
+
+## 版本
+
+目前版本：`1.3`
+
+本次版本修正：
+
+- 改用 `chrome.fontSettings.getFontList()` 的 `displayName` 當作 CSS `font-family`
+- 保留舊版 `fontId` 設定的相容讀取，避免升級後遺失原設定
+- 擴大字體覆蓋範圍到 `html`、表單元素與 frame
+- 補上 `CHANGELOG.md`
+
+## 為什麼之前可能會失效
+
+先前版本直接把 `fontId` 當成 CSS 字體名稱使用。`fontId` 是 Chrome 擴充 API 的識別值，不保證等於網頁 CSS 可直接套用的字體 family name，因此在部分字體或瀏覽器版本下，可能看起來像是「突然改不了字體」。
+
+另外，以下頁面本來就可能無法被擴充套件修改：
+
+- `chrome://`、`brave://` 等瀏覽器內建頁面
+- Chrome Web Store 或其他受限制頁面
+- 使用 shadow DOM、canvas 或圖片輸出的文字內容
 
 ## 安裝
 
-1. 下載或克隆此倉庫到您的本地機器。
-2. 打開 Chrome 瀏覽器，進入 `chrome://extensions/`。
-3. 在右上角啟用「開發者模式」。
+1. 下載或 clone 這個專案。
+2. 打開 `chrome://extensions/` 或 `brave://extensions/`。
+3. 開啟右上角的「開發者模式」。
 4. 點擊「載入未封裝項目」。
-5. 選擇包含擴展文件的文件夾。
+5. 選擇這個專案資料夾。
+6. 如果已經載入過舊版，請按一次重新整理按鈕，確保 `manifest.json` 的版本更新生效。
 
 ## 使用方法
 
-1. 點擊 Chrome 工具欄中的 Font Changer 圖標。
-2. 從下拉菜單中選擇您想要的字體。
-3. 使用複選框啟用或禁用字體更改。
-4. 您選擇的字體將立即應用到當前頁面。
+1. 打開你要閱讀的網站頁面。
+2. 點擊工具列中的 Font Changer 圖示。
+3. 從下拉選單選擇字體。
+4. 開啟「啟用字體替換」。
+5. 如果目前分頁沒有立即更新，重新整理一次該分頁再試。
 
 ## 技術細節
 
 - 使用 Chrome Extension Manifest V3
-- 利用 chrome.fontSettings API 獲取系統字體
-- 使用 content script 動態修改網頁樣式
+- 透過 `chrome.fontSettings` 讀取系統字體清單
+- 透過 content script 將樣式注入目前頁面
+- 使用 `chrome.storage.sync` 保存選擇的字體與啟用狀態
+- content script 已設定 `all_frames`、`match_about_blank`、`match_origin_as_fallback`
 
-## 文件結構
+## 檔案結構
 
-- `manifest.json`: 擴展配置文件
-- `popup.html`: 彈出窗口的 HTML
-- `popup.js`: 彈出窗口的 JavaScript
-- `content.js`: 內容腳本，用於修改網頁字體
-- `images/`: 包含擴展圖標的文件夾
+- `manifest.json`: 擴充套件設定
+- `popup.html`: popup 介面
+- `popup.js`: popup 邏輯與字體選擇
+- `content.js`: 頁面字體注入邏輯
+- `CHANGELOG.md`: 版本異動紀錄
+- `images/`: 圖示
+
+## 開發與驗證
+
+每次修改後，建議至少檢查：
+
+- 重新載入 unpacked extension
+- 在 Chrome 與 Brave 各測一個一般網站
+- 測試一個含有 iframe 的頁面
+- 切換不同字體後確認 popup 預覽與實際頁面一致
+
+本次已完成的基本檢查：
+
+- `node --check popup.js`
+- `node --check content.js`
 
 ## 貢獻
 
-歡迎提出問題或提交 Pull Requests 來改進這個項目。
+歡迎提出 issue 或 pull request。
 
 ## 許可證
 
-本項目採用 MIT 許可證。詳情請見 [LICENSE](LICENSE) 文件。
-
-## 作者
-
-[您的名字]
-
-## 致謝
-
-感謝所有為這個項目提供幫助和靈感的人。
+本專案採用 MIT License。

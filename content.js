@@ -120,9 +120,13 @@ function syncRoot(root) {
     return;
   }
 
-  style.textContent = isFontEnabled
+  const nextCss = isFontEnabled
     ? buildCss(root instanceof ShadowRoot)
     : '';
+
+  if (style.textContent !== nextCss) {
+    style.textContent = nextCss;
+  }
 }
 
 function syncDocumentRoot() {
@@ -140,10 +144,6 @@ function observeRoot(root) {
   }
 
   const observer = new MutationObserver(function(mutations) {
-    if (isFontEnabled) {
-      syncRoot(root);
-    }
-
     mutations.forEach(function(mutation) {
       mutation.addedNodes.forEach(scanNodeForShadowRoots);
     });
@@ -193,10 +193,6 @@ function scanDocumentForShadowRoots() {
 }
 
 const documentObserver = new MutationObserver(function(mutations) {
-  if (isFontEnabled) {
-    syncDocumentRoot();
-  }
-
   mutations.forEach(function(mutation) {
     mutation.addedNodes.forEach(scanNodeForShadowRoots);
   });

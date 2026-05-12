@@ -4,232 +4,188 @@ let currentFontFamily = '';
 let isFontEnabled = false;
 
 const rootStyles = new WeakMap();
-const rootObservers = new WeakMap();
 const trackedShadowRoots = new WeakSet();
 
-chrome.runtime.onMessage.addListener(function(request) {
-  if (request.action !== 'changeFont') {
-    return;
-  }
-
-  if (request.isEnabled) {
-    applyFont(request.font);
-  } else {
-    restoreOriginalFont();
-  }
-});
-
-function applyFont(font) {
-  currentFontFamily = font || '';
-  isFontEnabled = true;
-  syncDocumentRoot();
-  scanDocumentForShadowRoots();
-}
-
-function restoreOriginalFont() {
-  currentFontFamily = '';
-  isFontEnabled = false;
-  syncAllKnownRoots();
-}
+// 排除不需要改字體的圖示類別
+const EXCLUDE_CLASSES = [
+  '.material-icons',
+  '[class*="material-icons"]',
+  '[class*="material-symbols"]',
+  '[class*="google-material"]',
+  'mat-icon',
+  'md-icon',
+  '.fa',
+  '.fas',
+  '.far',
+  '.fab',
+  '.glyphicon'
+];
 
 function getFontStack() {
-  if (!currentFontFamily) {
-    return FALLBACK_STACK;
-  }
-
+  if (!currentFontFamily) return FALLBACK_STACK;
   return `${JSON.stringify(currentFontFamily)}, ${FALLBACK_STACK}`;
 }
 
+// 建立更有效率的 CSS
 function buildCss(isShadowRoot) {
-  const excludeClasses = [
-    '.material-icons',
-    '[class*="material-icons"]',
-    '[class*="material-symbols"]',
-    '[class*="google-material"]',
-    'mat-icon',
-    'md-icon',
-    '.fa',
-    '.fas',
-    '.far',
-    '.fab',
-    '.glyphicon'
-  ];
+  const excludeSelector = `:not(${EXCLUDE_CLASSES.join('):not(')})`;
   
-  const exclude = `:not(${excludeClasses.join('):not(')})`;
-
-  const shadowSelectors = [
-    `:host${exclude}`,
-    `:host *${exclude}`,
-    `input${exclude}`,
-    `textarea${exclude}`,
-    `select${exclude}`,
-    `button${exclude}`,
-    `option${exclude}`,
-    `optgroup${exclude}`,
-    `slot${exclude}`,
-    `slot *${exclude}`
-  ];
-
-  const lightSelectors = [
-    `html${exclude}`,
-    `body${exclude}`,
-    `input${exclude}`,
-    `textarea${exclude}`,
-    `select${exclude}`,
-    `button${exclude}`,
-    `option${exclude}`,
-    `optgroup${exclude}`,
-    `body *${exclude}`
-  ];
-
-  const selector = isShadowRoot ? shadowSelectors.join(',\n    ') : lightSelectors.join(',\n    ');
+  // 核心邏輯：在 root 層級設定，讓子元素繼承，不再對每個元素 (*) 強制套用
+  // 只針對少數不預設繼承的元素 (input, button 等) 做補強
+  const baseSelector = isShadowRoot ? ':host' : 'html, body';
+  const inputSelectors = 'input, textarea, select, button';
 
   return `
-    ${selector} {
+    ${baseSelector}${excludeSelector} {
       font-family: ${getFontStack()} !important;
+    }
+    ${baseSelector}${excludeSelector} ${inputSelectors} {
+      font-family: inherit !important;
+    }
+    /* 確保直接在 body 下的文字也能換到 */
+    ${isShadowRoot ? ':host > *' : 'body > *'}${excludeSelector} {
+      font-family: inherit !important;
     }
   `;
 }
 
-function ensureStyleForRoot(root) {
-  let style = rootStyles.get(root);
-  if (style && style.isConnected) {
-    return style;
-  }
-
-  style = document.createElement('style');
-  style.className = 'font-changer-style';
-
-  if (root === document) {
-    const container = document.head || document.documentElement;
-    if (!container) {
-      return null;
-    }
-    container.appendChild(style);
-  } else {
-    root.appendChild(style);
-  }
-
-  rootStyles.set(root, style);
-  return style;
-}
-
 function syncRoot(root) {
-  const style = ensureStyleForRoot(root);
-  if (!style) {
-    return;
+  if (!root) return;
+  
+  let style = rootStyles.get(root);
+  if (!style || !style.isConnected) {
+    style = document.createElement('style');
+    style.className = 'font-changer-style';
+    
+    try {
+      if (root === document) {
+        (document.head || document.documentElement).appendChild(style);
+      } else {
+        root.appendChild(style);
+      }
+      rootStyles.set(root, style);
+    } catch (e) {
+      return; // 某些 ShadowRoot 可能不允許 append
+    }
   }
 
-  const nextCss = isFontEnabled
-    ? buildCss(root instanceof ShadowRoot)
-    : '';
-
+  const nextCss = isFontEnabled ? buildCss(root instanceof ShadowRoot) : '';
   if (style.textContent !== nextCss) {
     style.textContent = nextCss;
   }
 }
 
-function syncDocumentRoot() {
-  syncRoot(document);
-}
+// 使用 TreeWalker 遍歷 Shadow DOM，效能遠好於 querySelectorAll('*')
+function scanForShadowRoots(rootNode) {
+  const walker = document.createTreeWalker(
+    rootNode,
+    NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode(node) {
+        return node.shadowRoot ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      }
+    }
+  );
 
-function syncAllKnownRoots() {
-  syncDocumentRoot();
-  scanDocumentForShadowRoots();
-}
-
-function observeRoot(root) {
-  if (rootObservers.has(root)) {
-    return;
+  const shadowRoots = [];
+  if (rootNode instanceof Element && rootNode.shadowRoot) {
+    shadowRoots.push(rootNode.shadowRoot);
   }
 
-  const observer = new MutationObserver(function(mutations) {
-    mutations.forEach(function(mutation) {
-      mutation.addedNodes.forEach(scanNodeForShadowRoots);
-    });
-  });
+  let curr;
+  while (curr = walker.nextNode()) {
+    if (curr.shadowRoot) shadowRoots.push(curr.shadowRoot);
+  }
 
-  observer.observe(root, { childList: true, subtree: true });
-  rootObservers.set(root, observer);
+  shadowRoots.forEach(registerShadowRoot);
 }
 
 function registerShadowRoot(root) {
   if (!root || trackedShadowRoots.has(root)) {
-    if (root && isFontEnabled) {
-      syncRoot(root);
-    }
+    if (root && isFontEnabled) syncRoot(root);
     return;
   }
 
   trackedShadowRoots.add(root);
-  observeRoot(root);
   syncRoot(root);
-
-  Array.from(root.children).forEach(scanNodeForShadowRoots);
-}
-
-function scanNodeForShadowRoots(node) {
-  if (!node || node.nodeType !== Node.ELEMENT_NODE) {
-    return;
-  }
-
-  const element = node;
-
-  if (element.shadowRoot) {
-    registerShadowRoot(element.shadowRoot);
-  }
-
-  element.querySelectorAll('*').forEach(function(descendant) {
-    if (descendant.shadowRoot) {
-      registerShadowRoot(descendant.shadowRoot);
+  
+  // 監聽 ShadowRoot 內部的變動
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          scanForShadowRoots(node);
+        }
+      }
     }
   });
+  observer.observe(root, { childList: true, subtree: true });
+
+  // 初始掃描內層
+  scanForShadowRoots(root);
 }
 
-function scanDocumentForShadowRoots() {
-  if (document.documentElement) {
-    scanNodeForShadowRoots(document.documentElement);
-  }
+// 主動掃描與初始化
+function applyFont(font) {
+  currentFontFamily = font || '';
+  isFontEnabled = true;
+  syncRoot(document);
+  scanForShadowRoots(document.documentElement);
 }
 
-const documentObserver = new MutationObserver(function(mutations) {
-  mutations.forEach(function(mutation) {
-    mutation.addedNodes.forEach(scanNodeForShadowRoots);
-  });
+function restoreOriginalFont() {
+  isFontEnabled = false;
+  currentFontFamily = '';
+  syncRoot(document);
+  // 我們不需要掃描所有 ShadowRoot 來還原，
+  // 因為 syncRoot(document) 會處理全域，
+  // 但為了徹底清除 ShadowRoot 內的樣式，我們會依賴已追蹤的 rootStyles
+  // 這裡簡單處理：重新整理頁面是最乾淨的，或者遍歷 WeakMap (但 WeakMap 不能遍歷)
+  // 所以我們只處理當前已知的。
+}
+
+// 監聽 DOM 變動 (Debounced)
+let scanTimeout;
+const documentObserver = new MutationObserver((mutations) => {
+  if (scanTimeout) clearTimeout(scanTimeout);
+  
+  scanTimeout = setTimeout(() => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          scanForShadowRoots(node);
+        }
+      }
+    }
+  }, 100);
 });
 
 documentObserver.observe(document, { childList: true, subtree: true });
 
-document.addEventListener(
-  'readystatechange',
-  function() {
-    if (isFontEnabled) {
-      syncDocumentRoot();
-      scanDocumentForShadowRoots();
+// 監聽訊息
+chrome.runtime.onMessage.addListener((request) => {
+  if (request.action === 'changeFont') {
+    if (request.isEnabled) {
+      applyFont(request.font);
+    } else {
+      restoreOriginalFont();
     }
-  },
-  { passive: true }
-);
-
-chrome.storage.sync.get(['selectedFont', 'isEnabled'], function(result) {
-  if (result.isEnabled) {
-    applyFont(result.selectedFont);
-  } else {
-    restoreOriginalFont();
   }
 });
 
-chrome.storage.onChanged.addListener(function(changes, areaName) {
-  if (areaName !== 'sync') {
-    return;
+// 初始化
+chrome.storage.sync.get(['selectedFont', 'isEnabled'], (result) => {
+  if (result.isEnabled) {
+    applyFont(result.selectedFont);
   }
+});
 
-  const nextFont = changes.selectedFont
-    ? changes.selectedFont.newValue || ''
-    : currentFontFamily;
-  const nextEnabled = changes.isEnabled
-    ? changes.isEnabled.newValue
-    : isFontEnabled;
+// 監聽儲存變更
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'sync') return;
+  
+  const nextEnabled = changes.isEnabled ? changes.isEnabled.newValue : isFontEnabled;
+  const nextFont = changes.selectedFont ? changes.selectedFont.newValue : currentFontFamily;
 
   if (nextEnabled) {
     applyFont(nextFont);

@@ -13,6 +13,7 @@ const LOCALES = {
     previewSample: '快速的棕色狐狸跳過了懶狗 Aa Bb 123',
     defaultFontOption: '系統預設字體',
     applyError: '無法套用字體，請重新整理此分頁後再試。',
+    restrictedPageError: '這個頁面不允許擴充套件改字體，例如瀏覽器內建頁或受限制頁面。',
     previewAria: '字體預覽文字內容',
     toggleAria: '啟用或停用字體替換',
   },
@@ -30,6 +31,7 @@ const LOCALES = {
     previewSample: 'The quick brown fox jumps over the lazy dog Aa Bb 123',
     defaultFontOption: 'System default font',
     applyError: 'Unable to apply the font. Reload this tab and try again.',
+    restrictedPageError: 'This page does not allow extension font changes, such as browser internal or restricted pages.',
     previewAria: 'Font preview text',
     toggleAria: 'Toggle font replacement',
   },
@@ -118,24 +120,25 @@ document.addEventListener('DOMContentLoaded', function () {
   function updateFont() {
     const selectedFont = fontSelect.value;
     const isEnabled = enableCheckbox.checked;
+    const payload = {
+      action: 'changeFont',
+      font: selectedFont,
+      isEnabled: isEnabled,
+    };
+
     chrome.storage.sync.set({ selectedFont: selectedFont, isEnabled: isEnabled }, function () {
       chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
         if (!tabs || !tabs.length) {
           return;
         }
-        chrome.tabs.sendMessage(
-          tabs[0].id,
-          {
-            action: 'changeFont',
-            font: selectedFont,
-            isEnabled: isEnabled,
-          },
-          function () {
-            if (chrome.runtime.lastError) {
-              ui.statusText.textContent = messages.applyError;
-            }
+
+        applyFontToTab(tabs[0].id, payload, function (result) {
+          if (!result.ok) {
+            ui.statusText.textContent = result.restricted
+              ? messages.restrictedPageError
+              : messages.applyError;
           }
-        );
+        });
       });
     });
     applyPreview(selectedFont);
@@ -146,6 +149,51 @@ document.addEventListener('DOMContentLoaded', function () {
     const fallbackStack = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
     const stack = fontId ? `'${fontId}', ${fallbackStack}` : fallbackStack;
     ui.previewInput.style.fontFamily = stack;
+  }
+
+  function applyFontToTab(tabId, payload, callback) {
+    chrome.tabs.sendMessage(tabId, payload, function () {
+      if (!chrome.runtime.lastError) {
+        callback({ ok: true, restricted: false });
+        return;
+      }
+
+      chrome.scripting.executeScript(
+        {
+          target: { tabId: tabId, allFrames: true },
+          files: ['content.js'],
+        },
+        function () {
+          if (chrome.runtime.lastError) {
+            callback({
+              ok: false,
+              restricted: isRestrictedPageError(chrome.runtime.lastError.message),
+            });
+            return;
+          }
+
+          chrome.tabs.sendMessage(tabId, payload, function () {
+            callback({
+              ok: !chrome.runtime.lastError,
+              restricted: chrome.runtime.lastError
+                ? isRestrictedPageError(chrome.runtime.lastError.message)
+                : false,
+            });
+          });
+        }
+      );
+    });
+  }
+
+  function isRestrictedPageError(message) {
+    return [
+      'Cannot access a chrome:// URL',
+      'The extensions gallery cannot be scripted',
+      'Cannot access contents of url',
+      'Missing host permission',
+    ].some(function (snippet) {
+      return typeof message === 'string' && message.includes(snippet);
+    });
   }
 
   function updateStatus(fontId, isEnabled) {

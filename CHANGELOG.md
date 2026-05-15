@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0 - 2026-05-15
+
+- Switched page font replacement from inheritance-heavy selectors to direct nested coverage like `body *` and `:host *`, improving results on apps such as Microsoft Teams.
+- Preserved icon-class exclusions so icon fonts are less likely to break while text elements are overridden more aggressively.
+- Added a small Node regression test to verify generated selectors for normal documents and shadow roots.
+- Added a per-site toggle stored in the page's `localStorage`, so specific websites can opt out of font replacement without changing the global setting.
+
 ## 1.4 - 2026-04-06
 
 - Added `scripting` fallback injection so already-open tabs can receive the font changer without a manual reload.

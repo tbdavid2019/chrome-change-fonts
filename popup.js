@@ -5,8 +5,11 @@ const LOCALES = {
     description: '選擇系統字體、預覽效果後再套用到目前分頁。',
     fontLabel: '字體',
     toggleLabel: '啟用字體替換',
+    siteDisableLabel: '此網站不生效',
+    siteBadgeUnavailable: '未偵測',
     statusDisabled: '尚未啟用字體替換。',
     statusEnabled: '已啟用：{font}',
+    statusSiteDisabled: '此網站已排除，不會套用字體替換。',
     previewTitle: '即時預覽',
     reset: '重設',
     hint: '提示：預覽區使用與實際網頁相同的字體設定，方便確認呈現效果。',
@@ -16,6 +19,7 @@ const LOCALES = {
     restrictedPageError: '這個頁面不允許擴充套件改字體，例如瀏覽器內建頁或受限制頁面。',
     previewAria: '字體預覽文字內容',
     toggleAria: '啟用或停用字體替換',
+    siteToggleAria: '切換目前網站是否停用字體替換',
   },
   en: {
     title: 'Font Changer',
@@ -23,8 +27,11 @@ const LOCALES = {
     description: 'Choose a system font, preview the result, then apply it to the current tab.',
     fontLabel: 'Font',
     toggleLabel: 'Enable font replacement',
+    siteDisableLabel: 'Disable on this site',
+    siteBadgeUnavailable: 'Unknown site',
     statusDisabled: 'Font replacement is disabled.',
     statusEnabled: 'Enabled: {font}',
+    statusSiteDisabled: 'This site is excluded from font replacement.',
     previewTitle: 'Live preview',
     reset: 'Reset',
     hint: 'Tip: the preview uses the same font stack applied to websites for accurate results.',
@@ -34,6 +41,7 @@ const LOCALES = {
     restrictedPageError: 'This page does not allow extension font changes, such as browser internal or restricted pages.',
     previewAria: 'Font preview text',
     toggleAria: 'Toggle font replacement',
+    siteToggleAria: 'Toggle whether font replacement is disabled on this site',
   },
 };
 
@@ -44,6 +52,8 @@ document.addEventListener('DOMContentLoaded', function () {
     description: document.getElementById('descriptionText'),
     fontLabel: document.getElementById('fontLabel'),
     toggleLabelText: document.getElementById('toggleLabelText'),
+    siteDisableLabelText: document.getElementById('siteDisableLabelText'),
+    siteBadge: document.getElementById('siteBadge'),
     statusText: document.getElementById('statusText'),
     previewTitle: document.getElementById('previewTitle'),
     hintText: document.getElementById('hintText'),
@@ -52,6 +62,7 @@ document.addEventListener('DOMContentLoaded', function () {
   };
   const fontSelect = document.getElementById('fontSelect');
   const enableCheckbox = document.getElementById('enableCheckbox');
+  const siteDisableCheckbox = document.getElementById('siteDisableCheckbox');
 
   const locale = resolveLocale();
   const sortLocale = locale === 'zh-Hant' ? 'zh-Hant' : 'en';
@@ -59,57 +70,65 @@ document.addEventListener('DOMContentLoaded', function () {
   applyLocale(messages, ui);
 
   let defaultPreview = messages.previewSample;
+  let activeTab = null;
+
   ui.previewInput.value = defaultPreview;
 
-  // 使用 chrome.fontSettings.getFontList 獲取系統字體
-  chrome.fontSettings.getFontList(function (fonts) {
-    // 先加入系統預設選項
-    const defaultOption = document.createElement('option');
-    defaultOption.value = '';
-    defaultOption.textContent = messages.defaultFontOption;
-    fontSelect.add(defaultOption);
+  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+    activeTab = tabs && tabs.length ? tabs[0] : null;
+    ui.siteBadge.textContent = getTabLabel(activeTab && activeTab.url) || messages.siteBadgeUnavailable;
 
-    (Array.isArray(fonts) ? fonts : [])
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, sortLocale))
-      .forEach(function (font) {
-        const option = document.createElement('option');
-        option.text = font.displayName;
-        option.value = font.displayName;
-        option.dataset.fontId = font.fontId;
-        fontSelect.add(option);
-      });
+    chrome.fontSettings.getFontList(function (fonts) {
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = messages.defaultFontOption;
+      fontSelect.add(defaultOption);
 
-    // 從存儲中加載設置
-    chrome.storage.sync.get(['selectedFont', 'isEnabled'], function (result) {
-      if (result.selectedFont) {
-        const matchedOption = Array.from(fontSelect.options).find(function (option) {
-          return option.value === result.selectedFont || option.dataset.fontId === result.selectedFont;
+      (Array.isArray(fonts) ? fonts : [])
+        .sort((a, b) => a.displayName.localeCompare(b.displayName, sortLocale))
+        .forEach(function (font) {
+          const option = document.createElement('option');
+          option.text = font.displayName;
+          option.value = font.displayName;
+          option.dataset.fontId = font.fontId;
+          fontSelect.add(option);
         });
-        fontSelect.value = matchedOption ? matchedOption.value : '';
-      }
-      if (result.isEnabled !== undefined) {
-        enableCheckbox.checked = result.isEnabled;
-      }
-      updateFont(); // 立即應用已保存的設置
+
+      chrome.storage.sync.get(['selectedFont', 'isEnabled'], function (result) {
+        if (result.selectedFont) {
+          const matchedOption = Array.from(fontSelect.options).find(function (option) {
+            return option.value === result.selectedFont || option.dataset.fontId === result.selectedFont;
+          });
+          fontSelect.value = matchedOption ? matchedOption.value : '';
+        }
+        if (result.isEnabled !== undefined) {
+          enableCheckbox.checked = result.isEnabled;
+        }
+
+        applyPreview(fontSelect.value);
+        updateStatus(fontSelect.value, enableCheckbox.checked, siteDisableCheckbox.checked);
+        syncPageState();
+        updateFont();
+      });
     });
   });
 
-  // 監聽字體選擇變化
   fontSelect.addEventListener('change', function () {
     updateFont();
   });
 
-  // 監聽啟用/禁用複選框變化
   enableCheckbox.addEventListener('change', function () {
     updateFont();
   });
 
-  // 監聽預覽文字內容，確保字體變更即時生效
+  siteDisableCheckbox.addEventListener('change', function () {
+    updateSiteDisable();
+  });
+
   ui.previewInput.addEventListener('input', function () {
     applyPreview(fontSelect.value);
   });
 
-  // 重設為預設字體與文字
   ui.resetButton.addEventListener('click', function () {
     fontSelect.selectedIndex = 0;
     enableCheckbox.checked = false;
@@ -127,32 +146,85 @@ document.addEventListener('DOMContentLoaded', function () {
     };
 
     chrome.storage.sync.set({ selectedFont: selectedFont, isEnabled: isEnabled }, function () {
-      chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-        if (!tabs || !tabs.length) {
+      if (!activeTab) {
+        return;
+      }
+
+      sendMessageToTab(activeTab.id, payload, function (result) {
+        if (!result.ok) {
+          ui.statusText.textContent = result.restricted
+            ? messages.restrictedPageError
+            : messages.applyError;
+        }
+      });
+    });
+
+    applyPreview(selectedFont);
+    updateStatus(selectedFont, isEnabled, siteDisableCheckbox.checked);
+  }
+
+  function updateSiteDisable() {
+    if (!activeTab) {
+      return;
+    }
+
+    sendMessageToTab(
+      activeTab.id,
+      { action: 'setSiteDisabled', isDisabled: siteDisableCheckbox.checked },
+      function (result) {
+        if (!result.ok) {
+          ui.statusText.textContent = result.restricted
+            ? messages.restrictedPageError
+            : messages.applyError;
           return;
         }
 
-        applyFontToTab(tabs[0].id, payload, function (result) {
-          if (!result.ok) {
-            ui.statusText.textContent = result.restricted
-              ? messages.restrictedPageError
-              : messages.applyError;
-          }
+        siteDisableCheckbox.checked = Boolean(result.response && result.response.isSiteDisabled);
+        updateStatus(fontSelect.value, enableCheckbox.checked, siteDisableCheckbox.checked);
+      }
+    );
+  }
+
+  function syncPageState() {
+    if (!activeTab) {
+      siteDisableCheckbox.disabled = true;
+      return;
+    }
+
+    sendMessageToTab(activeTab.id, { action: 'getPageState' }, function (result) {
+      if (!result.ok || !result.response) {
+        siteDisableCheckbox.disabled = true;
+        return;
+      }
+
+      siteDisableCheckbox.disabled = false;
+      siteDisableCheckbox.checked = Boolean(result.response.isSiteDisabled);
+      ui.siteBadge.textContent = result.response.host || ui.siteBadge.textContent;
+      updateStatus(fontSelect.value, enableCheckbox.checked, siteDisableCheckbox.checked);
+    });
+  }
+
+  function sendMessageToTab(tabId, payload, callback) {
+    ensureContentScript(tabId, function (result) {
+      if (!result.ok) {
+        callback(result);
+        return;
+      }
+
+      chrome.tabs.sendMessage(tabId, payload, function (response) {
+        callback({
+          ok: !chrome.runtime.lastError,
+          restricted: chrome.runtime.lastError
+            ? isRestrictedPageError(chrome.runtime.lastError.message)
+            : false,
+          response: response,
         });
       });
     });
-    applyPreview(selectedFont);
-    updateStatus(selectedFont, isEnabled);
   }
 
-  function applyPreview(fontId) {
-    const fallbackStack = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-    const stack = fontId ? `'${fontId}', ${fallbackStack}` : fallbackStack;
-    ui.previewInput.style.fontFamily = stack;
-  }
-
-  function applyFontToTab(tabId, payload, callback) {
-    chrome.tabs.sendMessage(tabId, payload, function () {
+  function ensureContentScript(tabId, callback) {
+    chrome.tabs.sendMessage(tabId, { action: 'getPageState' }, function () {
       if (!chrome.runtime.lastError) {
         callback({ ok: true, restricted: false });
         return;
@@ -172,17 +244,16 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
           }
 
-          chrome.tabs.sendMessage(tabId, payload, function () {
-            callback({
-              ok: !chrome.runtime.lastError,
-              restricted: chrome.runtime.lastError
-                ? isRestrictedPageError(chrome.runtime.lastError.message)
-                : false,
-            });
-          });
+          callback({ ok: true, restricted: false });
         }
       );
     });
+  }
+
+  function applyPreview(fontId) {
+    const fallbackStack = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+    const stack = fontId ? `'${fontId}', ${fallbackStack}` : fallbackStack;
+    ui.previewInput.style.fontFamily = stack;
   }
 
   function isRestrictedPageError(message) {
@@ -196,14 +267,30 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  function updateStatus(fontId, isEnabled) {
+  function updateStatus(fontId, isEnabled, isSiteDisabled) {
     const selectedOption = fontSelect.options[fontSelect.selectedIndex];
     const fallbackLabel = messages.defaultFontOption;
     const fontLabel = selectedOption ? selectedOption.textContent : fallbackLabel;
+
+    if (isEnabled && isSiteDisabled) {
+      ui.statusText.textContent = messages.statusSiteDisabled;
+      return;
+    }
+
     if (isEnabled) {
       ui.statusText.textContent = messages.statusEnabled.replace('{font}', fontLabel);
-    } else {
-      ui.statusText.textContent = messages.statusDisabled;
+      return;
+    }
+
+    ui.statusText.textContent = messages.statusDisabled;
+  }
+
+  function getTabLabel(url) {
+    if (!url) return '';
+    try {
+      return new URL(url).host;
+    } catch (_error) {
+      return '';
     }
   }
 
@@ -234,11 +321,14 @@ document.addEventListener('DOMContentLoaded', function () {
     elements.description.textContent = texts.description;
     elements.fontLabel.textContent = texts.fontLabel;
     elements.toggleLabelText.textContent = texts.toggleLabel;
+    elements.siteDisableLabelText.textContent = texts.siteDisableLabel;
+    elements.siteBadge.textContent = texts.siteBadgeUnavailable;
     elements.statusText.textContent = texts.statusDisabled;
     elements.previewTitle.textContent = texts.previewTitle;
     elements.hintText.textContent = texts.hint;
     elements.resetButton.textContent = texts.reset;
     elements.previewInput.setAttribute('aria-label', texts.previewAria);
     enableCheckbox.setAttribute('aria-label', texts.toggleAria);
+    siteDisableCheckbox.setAttribute('aria-label', texts.siteToggleAria);
   }
 });

@@ -1,10 +1,11 @@
 const FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const SITE_DISABLE_KEY = 'fontChangerDisabled';
 
 let currentFontFamily = '';
 let isFontEnabled = false;
 
 const rootStyles = new WeakMap();
-const trackedShadowRoots = new WeakSet();
+const trackedShadowRoots = new Set();
 
 // 排除不需要改字體的圖示類別
 const EXCLUDE_CLASSES = [
@@ -26,25 +27,61 @@ function getFontStack() {
   return `${JSON.stringify(currentFontFamily)}, ${FALLBACK_STACK}`;
 }
 
+function isSiteDisabled() {
+  try {
+    return localStorage.getItem(SITE_DISABLE_KEY) === '1';
+  } catch (_error) {
+    return false;
+  }
+}
+
+function setSiteDisabled(disabled) {
+  try {
+    if (disabled) {
+      localStorage.setItem(SITE_DISABLE_KEY, '1');
+    } else {
+      localStorage.removeItem(SITE_DISABLE_KEY);
+    }
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function shouldApplyCustomFont() {
+  return isFontEnabled && !isSiteDisabled();
+}
+
 // 建立更有效率的 CSS
 function buildCss(isShadowRoot) {
   const excludeSelector = `:not(${EXCLUDE_CLASSES.join('):not(')})`;
-  
-  // 核心邏輯：在 root 層級設定，讓子元素繼承，不再對每個元素 (*) 強制套用
-  // 只針對少數不預設繼承的元素 (input, button 等) 做補強
-  const baseSelector = isShadowRoot ? ':host' : 'html, body';
-  const inputSelectors = 'input, textarea, select, button';
+  const textSelectors = isShadowRoot
+    ? [`:host${excludeSelector}`, `:host *${excludeSelector}`]
+    : [
+        `html${excludeSelector}`,
+        `body${excludeSelector}`,
+        `body *${excludeSelector}`,
+      ];
+  const inputSelectors = isShadowRoot
+    ? [
+        `:host input${excludeSelector}`,
+        `:host textarea${excludeSelector}`,
+        `:host select${excludeSelector}`,
+        `:host button${excludeSelector}`,
+      ]
+    : [
+        `input${excludeSelector}`,
+        `textarea${excludeSelector}`,
+        `select${excludeSelector}`,
+        `button${excludeSelector}`,
+      ];
 
   return `
-    ${baseSelector}${excludeSelector} {
+    ${textSelectors.join(',\n    ')} {
       font-family: ${getFontStack()} !important;
     }
-    ${baseSelector}${excludeSelector} ${inputSelectors} {
-      font-family: inherit !important;
-    }
-    /* 確保直接在 body 下的文字也能換到 */
-    ${isShadowRoot ? ':host > *' : 'body > *'}${excludeSelector} {
-      font-family: inherit !important;
+    ${inputSelectors.join(',\n    ')} {
+      font-family: ${getFontStack()} !important;
     }
   `;
 }
@@ -69,10 +106,17 @@ function syncRoot(root) {
     }
   }
 
-  const nextCss = isFontEnabled ? buildCss(root instanceof ShadowRoot) : '';
+  const nextCss = shouldApplyCustomFont() ? buildCss(root instanceof ShadowRoot) : '';
   if (style.textContent !== nextCss) {
     style.textContent = nextCss;
   }
+}
+
+function syncAllRoots() {
+  syncRoot(document);
+  trackedShadowRoots.forEach((root) => {
+    syncRoot(root);
+  });
 }
 
 // 使用 TreeWalker 遍歷 Shadow DOM，效能遠好於 querySelectorAll('*')
@@ -129,19 +173,23 @@ function registerShadowRoot(root) {
 function applyFont(font) {
   currentFontFamily = font || '';
   isFontEnabled = true;
-  syncRoot(document);
-  scanForShadowRoots(document.documentElement);
+  syncAllRoots();
+  if (shouldApplyCustomFont()) {
+    scanForShadowRoots(document.documentElement);
+  }
 }
 
 function restoreOriginalFont() {
   isFontEnabled = false;
   currentFontFamily = '';
-  syncRoot(document);
-  // 我們不需要掃描所有 ShadowRoot 來還原，
-  // 因為 syncRoot(document) 會處理全域，
-  // 但為了徹底清除 ShadowRoot 內的樣式，我們會依賴已追蹤的 rootStyles
-  // 這裡簡單處理：重新整理頁面是最乾淨的，或者遍歷 WeakMap (但 WeakMap 不能遍歷)
-  // 所以我們只處理當前已知的。
+  syncAllRoots();
+}
+
+function updateFontApplication() {
+  syncAllRoots();
+  if (shouldApplyCustomFont()) {
+    scanForShadowRoots(document.documentElement);
+  }
 }
 
 // 監聽 DOM 變動 (Debounced)
@@ -170,6 +218,26 @@ chrome.runtime.onMessage.addListener((request) => {
     } else {
       restoreOriginalFont();
     }
+    return;
+  }
+
+  if (request.action === 'setSiteDisabled') {
+    const ok = setSiteDisabled(Boolean(request.isDisabled));
+    updateFontApplication();
+    return Promise.resolve({
+      ok,
+      isSiteDisabled: isSiteDisabled(),
+    });
+  }
+
+  if (request.action === 'getPageState') {
+    return Promise.resolve({
+      ok: true,
+      isSiteDisabled: isSiteDisabled(),
+      href: location.href,
+      origin: location.origin,
+      host: location.host,
+    });
   }
 });
 

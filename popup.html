@@ -18,6 +18,24 @@
       background: #f8f9fb;
       color: #1f2933;
     }
+    .topbar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 8px;
+    }
+    .lang-toggle {
+      border: 1px solid #c7d2fe;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      line-height: 1;
+      cursor: pointer;
+      background: #fff;
+      color: #4338ca;
+    }
+    .lang-toggle:hover {
+      background: #eef2ff;
+    }
     h1 {
       margin: 0 0 4px;
       font-size: 18px;
@@ -129,6 +147,9 @@
   </style>
 </head>
 <body>
+  <div class="topbar">
+    <button type="button" class="lang-toggle" id="languageToggle">EN/中</button>
+  </div>
   <header>
     <h1 id="headingText">Font Changer</h1>
     <p class="description" id="descriptionText">

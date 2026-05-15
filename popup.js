@@ -20,6 +20,8 @@ const LOCALES = {
     previewAria: '字體預覽文字內容',
     toggleAria: '啟用或停用字體替換',
     siteToggleAria: '切換目前網站是否停用字體替換',
+    languageToggle: 'EN',
+    languageToggleAria: '切換介面語言到英文',
   },
   en: {
     title: 'Font Changer',
@@ -42,12 +44,17 @@ const LOCALES = {
     previewAria: 'Font preview text',
     toggleAria: 'Toggle font replacement',
     siteToggleAria: 'Toggle whether font replacement is disabled on this site',
+    languageToggle: '中',
+    languageToggleAria: 'Switch interface language to Traditional Chinese',
   },
 };
+
+const UI_LANGUAGE_KEY = 'uiLanguage';
 
 document.addEventListener('DOMContentLoaded', function () {
   const ui = {
     title: document.querySelector('title'),
+    languageToggle: document.getElementById('languageToggle'),
     heading: document.getElementById('headingText'),
     description: document.getElementById('descriptionText'),
     fontLabel: document.getElementById('fontLabel'),
@@ -64,9 +71,9 @@ document.addEventListener('DOMContentLoaded', function () {
   const enableCheckbox = document.getElementById('enableCheckbox');
   const siteDisableCheckbox = document.getElementById('siteDisableCheckbox');
 
-  const locale = resolveLocale();
-  const sortLocale = locale === 'zh-Hant' ? 'zh-Hant' : 'en';
-  const messages = LOCALES[locale] || LOCALES.en;
+  let locale = getBrowserLocale();
+  let sortLocale = locale === 'zh-Hant' ? 'zh-Hant' : 'en';
+  let messages = LOCALES[locale] || LOCALES.en;
   applyLocale(messages, ui);
 
   let defaultPreview = messages.previewSample;
@@ -78,23 +85,18 @@ document.addEventListener('DOMContentLoaded', function () {
     activeTab = tabs && tabs.length ? tabs[0] : null;
     ui.siteBadge.textContent = getTabLabel(activeTab && activeTab.url) || messages.siteBadgeUnavailable;
 
-    chrome.fontSettings.getFontList(function (fonts) {
-      const defaultOption = document.createElement('option');
-      defaultOption.value = '';
-      defaultOption.textContent = messages.defaultFontOption;
-      fontSelect.add(defaultOption);
+    chrome.storage.sync.get([UI_LANGUAGE_KEY, 'selectedFont', 'isEnabled'], function (result) {
+      if (LOCALES[result[UI_LANGUAGE_KEY]]) {
+        locale = result[UI_LANGUAGE_KEY];
+        sortLocale = locale === 'zh-Hant' ? 'zh-Hant' : 'en';
+        messages = LOCALES[locale] || LOCALES.en;
+        defaultPreview = messages.previewSample;
+        applyLocale(messages, ui);
+        ui.previewInput.value = defaultPreview;
+        ui.siteBadge.textContent = getTabLabel(activeTab && activeTab.url) || messages.siteBadgeUnavailable;
+      }
 
-      (Array.isArray(fonts) ? fonts : [])
-        .sort((a, b) => a.displayName.localeCompare(b.displayName, sortLocale))
-        .forEach(function (font) {
-          const option = document.createElement('option');
-          option.text = font.displayName;
-          option.value = font.displayName;
-          option.dataset.fontId = font.fontId;
-          fontSelect.add(option);
-        });
-
-      chrome.storage.sync.get(['selectedFont', 'isEnabled'], function (result) {
+      rebuildFontOptions(function () {
         if (result.selectedFont) {
           const matchedOption = Array.from(fontSelect.options).find(function (option) {
             return option.value === result.selectedFont || option.dataset.fontId === result.selectedFont;
@@ -111,6 +113,16 @@ document.addEventListener('DOMContentLoaded', function () {
         updateFont();
       });
     });
+  });
+
+  ui.languageToggle.addEventListener('click', function () {
+    locale = locale === 'zh-Hant' ? 'en' : 'zh-Hant';
+    sortLocale = locale === 'zh-Hant' ? 'zh-Hant' : 'en';
+    messages = LOCALES[locale] || LOCALES.en;
+    defaultPreview = messages.previewSample;
+
+    chrome.storage.sync.set({ [UI_LANGUAGE_KEY]: locale });
+    rerenderLocale();
   });
 
   fontSelect.addEventListener('change', function () {
@@ -161,6 +173,52 @@ document.addEventListener('DOMContentLoaded', function () {
 
     applyPreview(selectedFont);
     updateStatus(selectedFont, isEnabled, siteDisableCheckbox.checked);
+  }
+
+  function rerenderLocale() {
+    const previousPreview = ui.previewInput.value;
+    const shouldResetPreview = previousPreview === LOCALES.en.previewSample || previousPreview === LOCALES['zh-Hant'].previewSample;
+
+    rebuildFontOptions(function () {
+      applyLocale(messages, ui);
+      if (shouldResetPreview) {
+        ui.previewInput.value = defaultPreview;
+      }
+      applyPreview(fontSelect.value);
+      updateStatus(fontSelect.value, enableCheckbox.checked, siteDisableCheckbox.checked);
+      if (activeTab && activeTab.url) {
+        ui.siteBadge.textContent = getTabLabel(activeTab.url) || messages.siteBadgeUnavailable;
+      }
+      syncPageState();
+    });
+  }
+
+  function rebuildFontOptions(callback) {
+    const selectedFont = fontSelect.value;
+    fontSelect.textContent = '';
+
+    chrome.fontSettings.getFontList(function (fonts) {
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = messages.defaultFontOption;
+      fontSelect.add(defaultOption);
+
+      (Array.isArray(fonts) ? fonts : [])
+        .sort((a, b) => a.displayName.localeCompare(b.displayName, sortLocale))
+        .forEach(function (font) {
+          const option = document.createElement('option');
+          option.text = font.displayName;
+          option.value = font.displayName;
+          option.dataset.fontId = font.fontId;
+          fontSelect.add(option);
+        });
+
+      const matchedOption = Array.from(fontSelect.options).find(function (option) {
+        return option.value === selectedFont || option.dataset.fontId === selectedFont;
+      });
+      fontSelect.value = matchedOption ? matchedOption.value : '';
+      callback();
+    });
   }
 
   function updateSiteDisable() {
@@ -294,7 +352,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  function resolveLocale() {
+  function getBrowserLocale() {
     const candidates = [
       typeof chrome !== 'undefined' &&
       chrome.i18n &&
@@ -317,6 +375,8 @@ document.addEventListener('DOMContentLoaded', function () {
   function applyLocale(texts, elements) {
     document.title = texts.title;
     elements.title.textContent = texts.title;
+    elements.languageToggle.textContent = texts.languageToggle;
+    elements.languageToggle.setAttribute('aria-label', texts.languageToggleAria);
     elements.heading.textContent = texts.heading;
     elements.description.textContent = texts.description;
     elements.fontLabel.textContent = texts.fontLabel;

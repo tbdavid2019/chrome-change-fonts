@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.2 - 2026-05-18
+
+- Fixed icon font breakage on sites that rely on custom glyph fonts, including Google Maps, Telegram Web, and 104 招募管理.
+- Expanded the exclusion selector list for icon-related classes such as `google-symbols`, `icon`, `iconfont`, `arrow-icon`, and common `icon-*` naming patterns.
+- Added regression tests to ensure generated CSS preserves those icon selectors while still overriding normal text content.
+
 ## 1.6.0 - 2026-05-15
 
 - Switched page font replacement from inheritance-heavy selectors to direct nested coverage like `body *` and `:host *`, improving results on apps such as Microsoft Teams.

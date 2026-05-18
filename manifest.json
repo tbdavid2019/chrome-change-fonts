@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Font Changer 改字體 333",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Change the font family of any website. 用你喜歡的字體閱讀網站",
   "permissions": [ "activeTab", "storage", "fontSettings", "scripting" ],
   "action": {

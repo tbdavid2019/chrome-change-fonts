@@ -99,6 +99,40 @@ test('buildCss covers nested page elements directly', () => {
   assert.doesNotMatch(css, /body > \*/);
 });
 
+test('buildCss excludes Google Maps Google Symbols icons', () => {
+  const sandbox = loadContentScript();
+  sandbox.applyFont('Test Sans');
+
+  const css = sandbox.buildCss(false);
+
+  assert.match(css, /\.google-symbols/);
+  assert.match(css, /\[class\*="google-symbols"\]/);
+});
+
+test('buildCss excludes generic icon font classes used by Telegram Web', () => {
+  const sandbox = loadContentScript();
+  sandbox.applyFont('Test Sans');
+
+  const css = sandbox.buildCss(false);
+
+  assert.match(css, /\.icon/);
+  assert.match(css, /\[class~="icon"\]/);
+});
+
+test('buildCss excludes broader icon naming patterns used by sites like 104', () => {
+  const sandbox = loadContentScript();
+  sandbox.applyFont('Test Sans');
+
+  const css = sandbox.buildCss(false);
+
+  assert.match(css, /\.iconfont/);
+  assert.match(css, /\.arrow-icon/);
+  assert.match(css, /\[class\*="icon-"\]/);
+  assert.match(css, /\[class\*="-icon"\]/);
+  assert.match(css, /\[class\*="icon_"\]/);
+  assert.match(css, /\[class\*="_icon"\]/);
+});
+
 test('buildCss covers nested shadow root elements directly', () => {
   const sandbox = loadContentScript();
   sandbox.applyFont('Shadow Sans');

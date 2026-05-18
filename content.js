@@ -9,9 +9,21 @@ const trackedShadowRoots = new Set();
 
 // 排除不需要改字體的圖示類別
 const EXCLUDE_CLASSES = [
+  '.icon',
+  '[class~="icon"]',
+  '.iconfont',
+  '[class*="iconfont"]',
+  '.arrow-icon',
+  '[class*="arrow-icon"]',
+  '[class*="icon-"]',
+  '[class*="-icon"]',
+  '[class*="icon_"]',
+  '[class*="_icon"]',
   '.material-icons',
   '[class*="material-icons"]',
   '[class*="material-symbols"]',
+  '.google-symbols',
+  '[class*="google-symbols"]',
   '[class*="google-material"]',
   'mat-icon',
   'md-icon',

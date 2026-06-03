@@ -12,8 +12,6 @@ const LOCALES = {
     statusSiteDisabled: '此網站已排除，不會套用字體替換。',
     previewTitle: '即時預覽',
     reset: '重設',
-    hint: '提示：預覽區使用與實際網頁相同的字體設定，方便確認呈現效果。',
-    previewSample: '快速的棕色狐狸跳過了懶狗 Aa Bb 123',
     defaultFontOption: '系統預設字體',
     applyError: '無法套用字體，請重新整理此分頁後再試。',
     restrictedPageError: '這個頁面不允許擴充套件改字體，例如瀏覽器內建頁或受限制頁面。',
@@ -36,8 +34,6 @@ const LOCALES = {
     statusSiteDisabled: 'This site is excluded from font replacement.',
     previewTitle: 'Live preview',
     reset: 'Reset',
-    hint: 'Tip: the preview uses the same font stack applied to websites for accurate results.',
-    previewSample: 'The quick brown fox jumps over the lazy dog Aa Bb 123',
     defaultFontOption: 'System default font',
     applyError: 'Unable to apply the font. Reload this tab and try again.',
     restrictedPageError: 'This page does not allow extension font changes, such as browser internal or restricted pages.',
@@ -50,6 +46,17 @@ const LOCALES = {
 };
 
 const UI_LANGUAGE_KEY = 'uiLanguage';
+const TAGORE_PREVIEW_SAMPLES = [
+  "她的熱切的臉，如夜雨似的，攪擾著我的夢魂。\nHer wishful face haunts my dreams like the rain at night.",
+  '如果你因失去了太陽而流淚，那麼你也將失去群星了。\nIf you shed tears when you miss the sun, you also miss the stars.',
+  '我不能選擇那最好的。\n是那最好的選擇我。\nI cannot choose the best.\nThe best chooses me.',
+  '枯竭的河床，並不感謝它的過去。\nThe dry river-bed finds no thanks for its past.',
+  '神從創造中找到他自己。\nGod finds himself by creating.',
+  '錯誤經不起失敗，但是真理卻不怕失敗。\nWrong cannot afford defeat but Right can.',
+  '我們把世界看錯了，反說它欺騙我們。\nWe read the world wrong and say that it deceives us.',
+  '刀鞘保護刀的鋒利，它自己則滿足於它的遲鈍。\nThe scabbard is content to be dull when it protects the keenness of the sword.',
+  '麻雀看見孔雀負擔著它的翎尾，替它擔憂。\nThe sparrow is sorry for the peacock at the burden of its tail.',
+];
 
 document.addEventListener('DOMContentLoaded', function () {
   const ui = {
@@ -63,7 +70,6 @@ document.addEventListener('DOMContentLoaded', function () {
     siteBadge: document.getElementById('siteBadge'),
     statusText: document.getElementById('statusText'),
     previewTitle: document.getElementById('previewTitle'),
-    hintText: document.getElementById('hintText'),
     previewInput: document.getElementById('previewInput'),
     resetButton: document.getElementById('resetButton'),
   };
@@ -76,7 +82,7 @@ document.addEventListener('DOMContentLoaded', function () {
   let messages = LOCALES[locale] || LOCALES.en;
   applyLocale(messages, ui);
 
-  let defaultPreview = messages.previewSample;
+  let defaultPreview = getRandomPreviewSample();
   let activeTab = null;
 
   ui.previewInput.value = defaultPreview;
@@ -90,9 +96,7 @@ document.addEventListener('DOMContentLoaded', function () {
         locale = result[UI_LANGUAGE_KEY];
         sortLocale = locale === 'zh-Hant' ? 'zh-Hant' : 'en';
         messages = LOCALES[locale] || LOCALES.en;
-        defaultPreview = messages.previewSample;
         applyLocale(messages, ui);
-        ui.previewInput.value = defaultPreview;
         ui.siteBadge.textContent = getTabLabel(activeTab && activeTab.url) || messages.siteBadgeUnavailable;
       }
 
@@ -119,7 +123,6 @@ document.addEventListener('DOMContentLoaded', function () {
     locale = locale === 'zh-Hant' ? 'en' : 'zh-Hant';
     sortLocale = locale === 'zh-Hant' ? 'zh-Hant' : 'en';
     messages = LOCALES[locale] || LOCALES.en;
-    defaultPreview = messages.previewSample;
 
     chrome.storage.sync.set({ [UI_LANGUAGE_KEY]: locale });
     rerenderLocale();
@@ -144,6 +147,7 @@ document.addEventListener('DOMContentLoaded', function () {
   ui.resetButton.addEventListener('click', function () {
     fontSelect.selectedIndex = 0;
     enableCheckbox.checked = false;
+    defaultPreview = getRandomPreviewSample();
     ui.previewInput.value = defaultPreview;
     updateFont();
   });
@@ -176,14 +180,8 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function rerenderLocale() {
-    const previousPreview = ui.previewInput.value;
-    const shouldResetPreview = previousPreview === LOCALES.en.previewSample || previousPreview === LOCALES['zh-Hant'].previewSample;
-
     rebuildFontOptions(function () {
       applyLocale(messages, ui);
-      if (shouldResetPreview) {
-        ui.previewInput.value = defaultPreview;
-      }
       applyPreview(fontSelect.value);
       updateStatus(fontSelect.value, enableCheckbox.checked, siteDisableCheckbox.checked);
       if (activeTab && activeTab.url) {
@@ -314,6 +312,11 @@ document.addEventListener('DOMContentLoaded', function () {
     ui.previewInput.style.fontFamily = stack;
   }
 
+  function getRandomPreviewSample() {
+    const index = Math.floor(Math.random() * TAGORE_PREVIEW_SAMPLES.length);
+    return TAGORE_PREVIEW_SAMPLES[index] || '';
+  }
+
   function isRestrictedPageError(message) {
     return [
       'Cannot access a chrome:// URL',
@@ -385,7 +388,6 @@ document.addEventListener('DOMContentLoaded', function () {
     elements.siteBadge.textContent = texts.siteBadgeUnavailable;
     elements.statusText.textContent = texts.statusDisabled;
     elements.previewTitle.textContent = texts.previewTitle;
-    elements.hintText.textContent = texts.hint;
     elements.resetButton.textContent = texts.reset;
     elements.previewInput.setAttribute('aria-label', texts.previewAria);
     enableCheckbox.setAttribute('aria-label', texts.toggleAria);

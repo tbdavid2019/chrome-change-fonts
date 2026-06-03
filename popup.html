@@ -12,7 +12,7 @@
       box-sizing: border-box;
     }
     body {
-      width: 320px;
+      width: 360px;
       margin: 0;
       padding: 16px;
       background: #f8f9fb;
@@ -127,7 +127,8 @@
     }
     textarea {
       width: 100%;
-      min-height: 80px;
+      min-height: 150px;
+      max-height: 260px;
       resize: vertical;
       border: 1px solid #d1d5db;
       border-radius: 8px;
@@ -138,11 +139,6 @@
       color: inherit;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
-    }
-    .hint {
-      font-size: 11px;
-      color: #6b7280;
-      margin: 0;
     }
   </style>
 </head>
@@ -186,10 +182,6 @@
       <textarea id="previewInput" spellcheck="false" wrap="soft" aria-label="Font preview text"></textarea>
     </section>
   </main>
-
-  <p class="hint" id="hintText">
-    Tip: the preview uses the same font stack applied to websites for accurate results.
-  </p>
 
   <script src="popup.js"></script>
 </body>

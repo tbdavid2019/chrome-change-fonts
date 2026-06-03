@@ -15,16 +15,20 @@ Oli Font Changer 是一個用來替換網頁字體的 Chrome/Brave 擴充套件�
 
 ## 版本
 
-目前版本：`1.6.2`
+目前版本：`1.6.3`
 
 本次版本修正：
+
+- 更新 Chrome extension 圖示，加入 `字` / `F` 的新設計，並重新輸出 `16`、`48`、`128` 三種 PNG 尺寸
+- 將 popup 即時預覽文字改為隨機顯示泰戈爾中英詩句，取代原本的 pangram 佔位文字
+- 加大 popup 與預覽區高度，讓完整中文句與英文句更容易檢視
+- 移除底部提示文字，把 popup 空間留給字體預覽
+
+近期版本也包含：
 
 - 修正 Google Maps、Telegram Web、104 招募管理等網站的 icon font 被誤套自訂字體，導致圖示變成亂碼或方塊的問題
 - 擴充 icon 排除規則，納入 `google-symbols`、`icon`、`iconfont`、`arrow-icon` 與常見 `icon-*` 命名模式
 - 補上對 icon 排除規則的 Node 測試，降低後續調整 selector 時再次破壞圖示的風險
-
-近期版本也包含：
-
 - 改用 `chrome.fontSettings.getFontList()` 的 `displayName` 當作 CSS `font-family`
 - 保留舊版 `fontId` 設定的相容讀取，避免升級後遺失原設定
 - 擴大字體覆蓋範圍到 `html`、表單元素與 frame

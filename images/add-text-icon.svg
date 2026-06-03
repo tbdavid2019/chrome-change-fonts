@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg
+  width="800px"
+  height="800px"
+  viewBox="0 0 16 16"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <g>
+    <text
+      x="-2.9"
+      y="10.7"
+      font-family="'PingFang TC', 'Noto Sans CJK TC', 'Microsoft JhengHei', sans-serif"
+      font-size="14.6"
+      font-weight="900"
+      letter-spacing="0"
+      fill="#FF7A00"
+    >字</text>
+    <text
+      x="7.35"
+      y="18.25"
+      font-family="Arial Black, Arial, Helvetica, sans-serif"
+      font-size="15.8"
+      font-weight="900"
+      letter-spacing="0"
+      fill="#00BFA5"
+    >F</text>
+  </g>
+</svg>

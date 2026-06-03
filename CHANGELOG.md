@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.3 - 2026-06-03
+
+- Refreshed the extension icon with a new `字` and `F` design, exported to the 16px, 48px, and 128px PNG assets used by Chrome.
+- Improved the popup preview text by replacing placeholder pangrams with randomized bilingual Tagore excerpts.
+- Enlarged the popup and preview text area so longer Chinese and English preview samples are easier to inspect.
+- Removed the footer hint text to keep the popup focused on font selection and live preview.
+
 ## 1.6.2 - 2026-05-18
 
 - Fixed icon font breakage on sites that rely on custom glyph fonts, including Google Maps, Telegram Web, and 104 招募管理.

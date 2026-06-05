@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.4 - 2026-06-05
+
+- Fixed Material Symbols ligature icons being overridden on sites such as Google Search Central Blog, which caused strings like `arrow_drop_down` to render as plain text after font replacement.
+- Added a targeted exclusion for Google DevSite's `.devsite-nav-toggle` sidebar control, whose expand/collapse icon is rendered through CSS rather than a visible DOM text node.
+- Added fallback detection for standalone ligature icon text and excluded its nearest interactive control from font replacement, while restoring the broader icon selector behavior to its previous scope.
+- Added regression tests for Google DevSite sidebar toggles, ligature text fallback handling, and the absence of broad `.icon *` descendant exclusions.
+- Renamed the extension and popup copy to `Website Font Changer 333` / `改字體 333` for clearer English wording and consistent `333` branding across your extensions.
+
 ## 1.6.3 - 2026-06-03
 
 - Refreshed the extension icon with a new `字` and `F` design, exported to the 16px, 48px, and 128px PNG assets used by Chrome.

@@ -1,6 +1,6 @@
-# Font Changer Chrome Extension
+# Website Font Changer 333 Chrome Extension
 
-Oli Font Changer 是一個用來替換網頁字體的 Chrome/Brave 擴充套件，讓你可以用自己系統裡已安裝的字體閱讀網站內容。
+Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴充套件，讓你可以用自己系統裡已安裝的字體閱讀網站內容。
 
 ![alt text](image.png)
 
@@ -15,9 +15,16 @@ Oli Font Changer 是一個用來替換網頁字體的 Chrome/Brave 擴充套件�
 
 ## 版本
 
-目前版本：`1.6.3`
+目前版本：`1.6.4`
 
 本次版本修正：
+
+- 修正 Google Search Central Blog 側邊欄樹狀選單在改字體後，展開/收合三角形被誤改字型，導致 `arrow_drop_down` 等 icon 名稱直接顯示並擠壞版面的問題
+- 針對 Google DevSite 的 `.devsite-nav-toggle` 側欄控制項加入排除規則，保留原站用 CSS pseudo-element 渲染的 Material icon
+- 保留單獨 ligature icon 文字的 fallback 偵測，並確認沒有回到過度排除 `.icon *` 後代節點的高風險做法
+- 將擴充套件名稱與 popup 標題調整為 `Website Font Changer 333` / `改字體 333`，讓品牌辨識與中英文文案更一致
+
+上一版更新：
 
 - 更新 Chrome extension 圖示，加入 `字` / `F` 的新設計，並重新輸出 `16`、`48`、`128` 三種 PNG 尺寸
 - 將 popup 即時預覽文字改為隨機顯示泰戈爾中英詩句，取代原本的 pangram 佔位文字
@@ -59,7 +66,7 @@ Oli Font Changer 是一個用來替換網頁字體的 Chrome/Brave 擴充套件�
 ## 使用方法
 
 1. 打開你要閱讀的網站頁面。
-2. 點擊工具列中的 Font Changer 圖示。
+2. 點擊工具列中的 Website Font Changer 333 圖示。
 3. 從下拉選單選擇字體。
 4. 開啟「啟用字體替換」。
 5. 如果目前分頁沒有立即更新，重新整理一次該分頁再試。

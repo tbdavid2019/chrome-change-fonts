@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Font Changer 改字體 333",
-  "version": "1.6.3",
-  "description": "Change the font family of any website. 用你喜歡的字體閱讀網站",
+  "name": "Website Font Changer 333 改字體",
+  "version": "1.6.4",
+  "description": "Change the font family of any website. Replace webpage fonts with your preferred system font.",
   "permissions": [ "activeTab", "storage", "fontSettings", "scripting" ],
   "action": {
     "default_popup": "popup.html",

@@ -1,5 +1,7 @@
 const FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const SITE_DISABLE_KEY = 'fontChangerDisabled';
+const EXCLUDE_ATTRIBUTE = 'data-font-changer-exclude';
+const INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [aria-haspopup], [aria-expanded]';
 
 let currentFontFamily = '';
 let isFontEnabled = false;
@@ -15,6 +17,7 @@ const EXCLUDE_CLASSES = [
   '[class*="iconfont"]',
   '.arrow-icon',
   '[class*="arrow-icon"]',
+  '.devsite-nav-toggle',
   '[class*="icon-"]',
   '[class*="-icon"]',
   '[class*="icon_"]',
@@ -64,28 +67,119 @@ function shouldApplyCustomFont() {
   return isFontEnabled && !isSiteDisabled();
 }
 
+function buildFontTargetSuffix() {
+  const excludeSelectors = EXCLUDE_CLASSES.concat([`[${EXCLUDE_ATTRIBUTE}]`]);
+  const excludeSelector = `:not(${excludeSelectors.join('):not(')})`;
+
+  return `${excludeSelector}:not([${EXCLUDE_ATTRIBUTE}] *)`;
+}
+
+function isLikelyLigatureIconText(text) {
+  const normalized = String(text || '').trim();
+  if (!normalized) return false;
+  if (normalized.length > 40) return false;
+  return /^[a-z0-9_]+$/.test(normalized) && normalized.includes('_');
+}
+
+function isLigatureIconElement(element) {
+  if (!element || !element.childNodes || element.childElementCount > 0) return false;
+
+  let textContent = '';
+  for (const node of element.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      textContent += node.textContent || '';
+      continue;
+    }
+    return false;
+  }
+
+  return isLikelyLigatureIconText(textContent);
+}
+
+function markExcludedElement(element) {
+  if (!element || typeof element.setAttribute !== 'function') {
+    return;
+  }
+
+  element.setAttribute(EXCLUDE_ATTRIBUTE, '1');
+}
+
+function markLigatureIconElement(element) {
+  markExcludedElement(element);
+
+  if (typeof element.closest === 'function') {
+    markExcludedElement(element.closest(INTERACTIVE_EXCLUDE_SELECTOR));
+  }
+}
+
+function updateLigatureIconTextNode(textNode) {
+  if (!textNode || !isLikelyLigatureIconText(textNode.textContent)) {
+    return;
+  }
+
+  const parent = textNode.parentElement || textNode.parentNode;
+  if (parent && parent.nodeType === Node.ELEMENT_NODE) {
+    markLigatureIconElement(parent);
+  }
+}
+
+function updateLigatureIconMarker(element) {
+  if (!element || typeof element.setAttribute !== 'function' || typeof element.removeAttribute !== 'function') {
+    return;
+  }
+
+  if (isLigatureIconElement(element)) {
+    markLigatureIconElement(element);
+  } else if (element.hasAttribute(EXCLUDE_ATTRIBUTE)) {
+    element.removeAttribute(EXCLUDE_ATTRIBUTE);
+  }
+}
+
+function scanForLigatureIcons(rootNode) {
+  if (!rootNode) return;
+
+  if (rootNode.nodeType === Node.TEXT_NODE) {
+    updateLigatureIconTextNode(rootNode);
+    return;
+  }
+
+  if (rootNode.nodeType === Node.ELEMENT_NODE) {
+    updateLigatureIconMarker(rootNode);
+  }
+
+  const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+  let curr;
+  while (curr = walker.nextNode()) {
+    if (curr.nodeType === Node.TEXT_NODE) {
+      updateLigatureIconTextNode(curr);
+    } else {
+      updateLigatureIconMarker(curr);
+    }
+  }
+}
+
 // 建立更有效率的 CSS
 function buildCss(isShadowRoot) {
-  const excludeSelector = `:not(${EXCLUDE_CLASSES.join('):not(')})`;
+  const targetSuffix = buildFontTargetSuffix();
   const textSelectors = isShadowRoot
-    ? [`:host${excludeSelector}`, `:host *${excludeSelector}`]
+    ? [`:host${targetSuffix}`, `:host *${targetSuffix}`]
     : [
-        `html${excludeSelector}`,
-        `body${excludeSelector}`,
-        `body *${excludeSelector}`,
+        `html${targetSuffix}`,
+        `body${targetSuffix}`,
+        `body *${targetSuffix}`,
       ];
   const inputSelectors = isShadowRoot
     ? [
-        `:host input${excludeSelector}`,
-        `:host textarea${excludeSelector}`,
-        `:host select${excludeSelector}`,
-        `:host button${excludeSelector}`,
+        `:host input${targetSuffix}`,
+        `:host textarea${targetSuffix}`,
+        `:host select${targetSuffix}`,
+        `:host button${targetSuffix}`,
       ]
     : [
-        `input${excludeSelector}`,
-        `textarea${excludeSelector}`,
-        `select${excludeSelector}`,
-        `button${excludeSelector}`,
+        `input${targetSuffix}`,
+        `textarea${targetSuffix}`,
+        `select${targetSuffix}`,
+        `button${targetSuffix}`,
       ];
 
   return `
@@ -125,8 +219,10 @@ function syncRoot(root) {
 }
 
 function syncAllRoots() {
+  scanForLigatureIcons(document.documentElement);
   syncRoot(document);
   trackedShadowRoots.forEach((root) => {
+    scanForLigatureIcons(root);
     syncRoot(root);
   });
 }
@@ -169,8 +265,11 @@ function registerShadowRoot(root) {
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          scanForShadowRoots(node);
+        if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
+          scanForLigatureIcons(node);
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            scanForShadowRoots(node);
+          }
         }
       }
     }
@@ -212,8 +311,11 @@ const documentObserver = new MutationObserver((mutations) => {
   scanTimeout = setTimeout(() => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          scanForShadowRoots(node);
+        if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
+          scanForLigatureIcons(node);
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            scanForShadowRoots(node);
+          }
         }
       }
     }

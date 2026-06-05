@@ -1,7 +1,7 @@
 const LOCALES = {
   'zh-Hant': {
-    title: '改字體 - Font Changer',
-    heading: '改字體 - Font Changer',
+    title: '改字體 333',
+    heading: '改字體 333',
     description: '選擇系統字體、預覽效果後再套用到目前分頁。',
     fontLabel: '字體',
     toggleLabel: '啟用字體替換',
@@ -22,8 +22,8 @@ const LOCALES = {
     languageToggleAria: '切換介面語言到英文',
   },
   en: {
-    title: 'Font Changer',
-    heading: 'Font Changer',
+    title: 'Website Font Changer 333',
+    heading: 'Website Font Changer 333',
     description: 'Choose a system font, preview the result, then apply it to the current tab.',
     fontLabel: 'Font',
     toggleLabel: 'Enable font replacement',

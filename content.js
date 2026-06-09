@@ -2,8 +2,14 @@ const FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI'
 const SITE_DISABLE_KEY = 'fontChangerDisabled';
 const EXCLUDE_ATTRIBUTE = 'data-font-changer-exclude';
 const INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [aria-haspopup], [aria-expanded]';
+const FONT_MODE_BASIC = 'basic';
+const FONT_MODE_ADVANCED = 'advanced';
+const CJK_FONT_FAMILY = 'FontChangerCjk';
+const CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
 
 let currentFontFamily = '';
+let currentFontMode = FONT_MODE_BASIC;
+let currentAdvancedFontConfig = createAdvancedFontConfig();
 let isFontEnabled = false;
 
 const rootStyles = new WeakMap();
@@ -38,8 +44,66 @@ const EXCLUDE_CLASSES = [
 ];
 
 function getFontStack() {
+  if (shouldUseAdvancedFontMode()) {
+    const stack = [];
+    if (currentAdvancedFontConfig.cjkFont) {
+      stack.push(JSON.stringify(CJK_FONT_FAMILY));
+    }
+    if (currentAdvancedFontConfig.latinFont) {
+      stack.push(JSON.stringify(currentAdvancedFontConfig.latinFont));
+    }
+    stack.push(FALLBACK_STACK);
+    return stack.join(', ');
+  }
   if (!currentFontFamily) return FALLBACK_STACK;
   return `${JSON.stringify(currentFontFamily)}, ${FALLBACK_STACK}`;
+}
+
+function createAdvancedFontConfig(config) {
+  return {
+    cjkFont: config && typeof config.cjkFont === 'string' ? config.cjkFont : '',
+    cjkFontId: config && typeof config.cjkFontId === 'string' ? config.cjkFontId : '',
+    latinFont: config && typeof config.latinFont === 'string' ? config.latinFont : '',
+    latinFontId: config && typeof config.latinFontId === 'string' ? config.latinFontId : '',
+  };
+}
+
+function normalizeFontMode(mode) {
+  return mode === FONT_MODE_ADVANCED ? FONT_MODE_ADVANCED : FONT_MODE_BASIC;
+}
+
+function shouldUseAdvancedFontMode() {
+  return currentFontMode === FONT_MODE_ADVANCED && (
+    Boolean(currentAdvancedFontConfig.cjkFont) ||
+    Boolean(currentAdvancedFontConfig.latinFont)
+  );
+}
+
+function buildCompositeFontFaceCss() {
+  if (!shouldUseAdvancedFontMode() || !currentAdvancedFontConfig.cjkFont) {
+    return '';
+  }
+
+  return `
+    @font-face {
+      font-family: ${JSON.stringify(CJK_FONT_FAMILY)};
+      src: ${buildLocalFontSources(
+        currentAdvancedFontConfig.cjkFont,
+        currentAdvancedFontConfig.cjkFontId
+      )};
+      unicode-range: ${CJK_UNICODE_RANGE};
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: swap;
+    }`;
+}
+
+function buildLocalFontSources(displayName, fontId) {
+  const names = [displayName, fontId]
+    .filter((name) => typeof name === 'string' && name)
+    .filter((name, index, array) => array.indexOf(name) === index);
+
+  return names.map((name) => `local(${JSON.stringify(name)})`).join(', ');
 }
 
 function isSiteDisabled() {
@@ -181,8 +245,10 @@ function buildCss(isShadowRoot) {
         `select${targetSuffix}`,
         `button${targetSuffix}`,
       ];
+  const fontFaceCss = buildCompositeFontFaceCss();
 
   return `
+    ${fontFaceCss}
     ${textSelectors.join(',\n    ')} {
       font-family: ${getFontStack()} !important;
     }
@@ -283,6 +349,19 @@ function registerShadowRoot(root) {
 // 主動掃描與初始化
 function applyFont(font) {
   currentFontFamily = font || '';
+  currentFontMode = FONT_MODE_BASIC;
+  currentAdvancedFontConfig = createAdvancedFontConfig();
+  isFontEnabled = true;
+  syncAllRoots();
+  if (shouldApplyCustomFont()) {
+    scanForShadowRoots(document.documentElement);
+  }
+}
+
+function applyFontSettings(settings) {
+  currentFontFamily = typeof settings.font === 'string' ? settings.font : '';
+  currentFontMode = normalizeFontMode(settings.fontMode);
+  currentAdvancedFontConfig = createAdvancedFontConfig(settings.advancedFontConfig);
   isFontEnabled = true;
   syncAllRoots();
   if (shouldApplyCustomFont()) {
@@ -328,7 +407,7 @@ documentObserver.observe(document, { childList: true, subtree: true });
 chrome.runtime.onMessage.addListener((request) => {
   if (request.action === 'changeFont') {
     if (request.isEnabled) {
-      applyFont(request.font);
+      applyFontSettings(request);
     } else {
       restoreOriginalFont();
     }
@@ -356,9 +435,13 @@ chrome.runtime.onMessage.addListener((request) => {
 });
 
 // 初始化
-chrome.storage.sync.get(['selectedFont', 'isEnabled'], (result) => {
+chrome.storage.sync.get(['selectedFont', 'isEnabled', 'fontMode', 'advancedFontConfig'], (result) => {
   if (result.isEnabled) {
-    applyFont(result.selectedFont);
+    applyFontSettings({
+      font: result.selectedFont,
+      fontMode: result.fontMode,
+      advancedFontConfig: result.advancedFontConfig,
+    });
   }
 });
 
@@ -368,9 +451,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
   
   const nextEnabled = changes.isEnabled ? changes.isEnabled.newValue : isFontEnabled;
   const nextFont = changes.selectedFont ? changes.selectedFont.newValue : currentFontFamily;
+  const nextMode = changes.fontMode ? changes.fontMode.newValue : currentFontMode;
+  const nextAdvancedFontConfig = changes.advancedFontConfig
+    ? changes.advancedFontConfig.newValue
+    : currentAdvancedFontConfig;
 
   if (nextEnabled) {
-    applyFont(nextFont);
+    applyFontSettings({
+      font: nextFont,
+      fontMode: nextMode,
+      advancedFontConfig: nextAdvancedFontConfig,
+    });
   } else {
     restoreOriginalFont();
   }

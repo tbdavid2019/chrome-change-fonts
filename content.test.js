@@ -271,6 +271,48 @@ test('buildCss covers nested shadow root elements directly', () => {
   assert.match(css, /font-family: "Shadow Sans", system-ui/);
 });
 
+test('advanced mode limits only the CJK font and applies the non-CJK font directly', () => {
+  const sandbox = loadContentScript();
+  sandbox.applyFontSettings({
+    fontMode: 'advanced',
+    advancedFontConfig: {
+      cjkFont: '888Roundhand',
+      cjkFontId: '888Roundhand-Regular',
+      latinFont: 'JetBrains Mono',
+      latinFontId: 'JetBrainsMono-Regular',
+    },
+  });
+
+  const css = sandbox.buildCss(false);
+
+  assert.match(css, /font-family: "FontChangerCjk"/);
+  assert.match(css, /src: local\("888Roundhand"\), local\("888Roundhand-Regular"\)/);
+  assert.match(css, /font-family: "FontChangerCjk", "JetBrains Mono", system-ui/);
+  assert.doesNotMatch(css, /src: local\("JetBrains Mono"\)/);
+  assert.doesNotMatch(css, /JetBrainsMono-Regular/);
+  assert.match(css, /unicode-range: U\+3000-303F/);
+  assert.match(css, /font-weight: 100 900/);
+  assert.match(css, /font-style: normal/);
+  assert.equal((css.match(/unicode-range:/g) || []).length, 1);
+});
+
+test('basic mode remains effective after advanced config exists', () => {
+  const sandbox = loadContentScript();
+  sandbox.applyFontSettings({
+    font: 'Basic Sans',
+    fontMode: 'basic',
+    advancedFontConfig: {
+      cjkFont: '888Roundhand',
+      latinFont: 'JetBrains Mono',
+    },
+  });
+
+  const css = sandbox.buildCss(false);
+
+  assert.match(css, /font-family: "Basic Sans", system-ui/);
+  assert.doesNotMatch(css, /FontChangerCjk/);
+});
+
 test('site-level disable overrides enabled font replacement', () => {
   const sandbox = loadContentScript();
 

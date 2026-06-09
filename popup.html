@@ -7,6 +7,18 @@
     :root {
       color-scheme: light dark;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --bg: #f8f9fb;
+      --card: #ffffff;
+      --card-muted: #f5f7ff;
+      --border: #dbe1ea;
+      --border-strong: #c7d2fe;
+      --text: #1f2933;
+      --text-muted: #4b5563;
+      --accent: #4338ca;
+      --accent-soft: #eef2ff;
+      --accent-strong: #312e81;
+      --danger-soft: #eef2ff;
+      --shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
     }
     *, *::before, *::after {
       box-sizing: border-box;
@@ -15,8 +27,10 @@
       width: 360px;
       margin: 0;
       padding: 16px;
-      background: #f8f9fb;
-      color: #1f2933;
+      background:
+        radial-gradient(circle at top right, rgba(199, 210, 254, 0.9), transparent 34%),
+        linear-gradient(180deg, #fbfcff 0%, var(--bg) 100%);
+      color: var(--text);
     }
     .topbar {
       display: flex;
@@ -37,13 +51,8 @@
       background: #eef2ff;
     }
     h1 {
-      margin: 0 0 4px;
+      margin: 0 0 12px;
       font-size: 18px;
-    }
-    p.description {
-      margin: 0 0 16px;
-      font-size: 12px;
-      color: #4b5563;
     }
     label {
       font-size: 13px;
@@ -55,10 +64,15 @@
       width: 100%;
       padding: 8px;
       border-radius: 8px;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--border);
       margin-bottom: 12px;
       font-size: 13px;
       background: #fff;
+    }
+    select:disabled {
+      background: #f3f4f6;
+      color: #6b7280;
+      cursor: not-allowed;
     }
     .toggle-row {
       display: flex;
@@ -82,7 +96,7 @@
       flex-shrink: 0;
       padding: 4px 8px;
       border-radius: 999px;
-      background: #eef2ff;
+      background: var(--accent-soft);
       color: #3730a3;
       font-size: 11px;
       line-height: 1.2;
@@ -95,6 +109,62 @@
       font-size: 12px;
       color: #6b7280;
       margin-bottom: 12px;
+    }
+    .mode-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #edf2f7;
+      margin-bottom: 12px;
+    }
+    .mode-tab {
+      flex: 1;
+      border-radius: 7px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: #4b5563;
+      font-weight: 700;
+      padding: 7px 8px;
+    }
+    .mode-tab[aria-selected="true"] {
+      background: #fff;
+      color: var(--accent);
+      border-color: var(--border-strong);
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    }
+    .settings-panel {
+      margin-bottom: 12px;
+    }
+    .settings-panel[hidden] {
+      display: none;
+    }
+    .mode-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: -4px 0 12px;
+    }
+    .advanced-panel {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(245, 247, 255, 0.92) 100%);
+      border-radius: 8px;
+      border: 1px solid var(--border-strong);
+      box-shadow: var(--shadow);
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .advanced-panel[hidden] {
+      display: none;
+    }
+    .advanced-panel-description,
+    .advanced-help {
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.5;
+      color: var(--text-muted);
+    }
+    .advanced-panel-description {
+      margin-bottom: 10px;
     }
     .preview-card {
       background: #fff;
@@ -148,14 +218,33 @@
   </div>
   <header>
     <h1 id="headingText">Website Font Changer 333</h1>
-    <p class="description" id="descriptionText">
-      Choose a system font, preview the result, then apply it to the current tab.
-    </p>
   </header>
 
   <main>
-    <label for="fontSelect" id="fontLabel">Font</label>
-    <select id="fontSelect"></select>
+    <div class="mode-tabs" role="tablist" aria-label="Font mode">
+      <button type="button" class="mode-tab" id="basicModeTab" role="tab" aria-selected="true" aria-controls="basicSettingsPanel">Single font</button>
+      <button type="button" class="mode-tab" id="advancedModeTab" role="tab" aria-selected="false" aria-controls="advancedSettingsPanel">CJK / Latin split</button>
+    </div>
+
+    <section class="settings-panel" id="basicSettingsPanel" role="tabpanel" aria-labelledby="basicModeTab">
+      <label for="fontSelect" id="fontLabel">Font</label>
+      <select id="fontSelect"></select>
+      <p class="mode-hint" id="modeHintText">Single font mode is active.</p>
+    </section>
+
+    <section class="settings-panel advanced-panel" id="advancedSettingsPanel" role="tabpanel" aria-labelledby="advancedModeTab" hidden>
+      <p class="advanced-panel-description" id="advancedPanelDescription">
+        Use one font for CJK (Chinese, Japanese, Korean) text and punctuation, and another font for non-CJK text.
+      </p>
+      <label for="advancedCjkSelect" id="advancedCjkLabel">CJK (Chinese / Japanese / Korean)</label>
+      <select id="advancedCjkSelect"></select>
+
+      <label for="advancedLatinSelect" id="advancedLatinLabel">Non-CJK (Latin / numbers / punctuation)</label>
+      <select id="advancedLatinSelect"></select>
+      <p class="advanced-help" id="advancedHelpText">
+        Single-font and CJK / Latin split settings are saved separately. The active tab controls the page.
+      </p>
+    </section>
 
     <div class="toggle-row">
       <label id="toggleLabel">

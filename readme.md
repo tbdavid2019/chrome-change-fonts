@@ -7,6 +7,8 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 ## 功能
 
 - 從系統可用字體中挑選要套用的字體
+- 保留最簡單的單一字體模式，適合大多數使用者
+- 提供 `單一字體` / `CJK / 英數分開` 內部 tab，可分開指定 `CJK（中日韓）` 與 `非 CJK（英數與標點）`
 - 啟用或停用目前分頁的字體替換
 - 針對目前網站設定「不生效」，並記錄在該網站的 `localStorage`
 - 在 popup 內即時預覽字體效果
@@ -15,14 +17,11 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`1.6.4`
+目前版本：`1.7.6`
 
 本次版本修正：
 
-- 修正 Google Search Central Blog 側邊欄樹狀選單在改字體後，展開/收合三角形被誤改字型，導致 `arrow_drop_down` 等 icon 名稱直接顯示並擠壞版面的問題
-- 針對 Google DevSite 的 `.devsite-nav-toggle` 側欄控制項加入排除規則，保留原站用 CSS pseudo-element 渲染的 Material icon
-- 保留單獨 ligature icon 文字的 fallback 偵測，並確認沒有回到過度排除 `.icon *` 後代節點的高風險做法
-- 將擴充套件名稱與 popup 標題調整為 `Website Font Changer 333` / `改字體 333`，讓品牌辨識與中英文文案更一致
+- 移除 popup 標題下方的說明文字，將空間留給字體模式 tab 與設定控制項
 
 上一版更新：
 
@@ -71,12 +70,20 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 4. 開啟「啟用字體替換」。
 5. 如果目前分頁沒有立即更新，重新整理一次該分頁再試。
 
+如果你想要把 CJK（中日韓）和英數分開套不同字體：
+
+1. 切到 `CJK / 英數分開` tab。
+2. 分別選擇 `CJK（中日韓）` 與 `非 CJK（英數與標點）` 的字體。
+3. 開啟「啟用字體替換」。
+4. 若要回到原本做法，切回 `單一字體` tab。
+
 ## 技術細節
 
 - 使用 Chrome Extension Manifest V3
 - 透過 `chrome.fontSettings` 讀取系統字體清單
 - 透過 content script 將樣式注入目前頁面
-- 使用 `chrome.storage.sync` 保存選擇的字體與啟用狀態
+- 使用 `chrome.storage.sync` 保存 `basic` / `advanced` 模式與各自的字體設定，進階設定會保存字體顯示名稱與 `fontId`
+- 進階模式透過 `unicode-range` 的 `@font-face` 將 CJK 字體限制在 CJK 範圍，並以直接 `font-family` 方式套用第二套非 CJK 字體
 - 使用網站本身的 `localStorage` 保存每個網站是否停用字體替換
 - content script 已設定 `all_frames`、`match_about_blank`、`match_origin_as_fallback`
 
@@ -96,7 +103,8 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 - 重新載入 unpacked extension
 - 在 Chrome 與 Brave 各測一個一般網站
 - 測試一個含有 iframe 的頁面
-- 切換不同字體後確認 popup 預覽與實際頁面一致
+- 切換 `單一字體` 與 `CJK / 英數分開` 後確認 popup 預覽與實際頁面一致
+- 驗證切換 `單一字體` / `CJK / 英數分開` tab 時，只有目前模式的設定會顯示並生效
 
 本次已完成的基本檢查：
 

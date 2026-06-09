@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.7.6 - 2026-06-09
+
+- Removed the popup header description text to free vertical space for the font mode tabs and settings controls.
+
+## 1.7.5 - 2026-06-09
+
+- Renamed the user-facing advanced mode copy to `CJK / Latin split` in English and `CJK / 英數分開` in Traditional Chinese, making the feature purpose clearer at a glance.
+- Clarified that CJK means Chinese, Japanese, and Korean in popup labels and documentation instead of implying the mode is only for Chinese text.
+- Updated README wording to use `CJK（中日韓）` and non-CJK/Latin terminology consistently.
+
+## 1.7.4 - 2026-06-09
+
+- Fixed CJK font matching in advanced split mode by saving the selected font's `fontId` alongside its display name.
+- Generated CJK `@font-face` rules now try both `local(displayName)` and `local(fontId)`, which is more reliable for locally installed fonts whose display name does not match the internal face name Chrome expects.
+- Kept non-CJK font handling as a direct `font-family` stack entry so English and number rendering continues to match single-font mode.
+
+## 1.7.3 - 2026-06-09
+
+- Added a mutually exclusive `basic` / `advanced` font mode model so single-font settings and split CJK/non-CJK settings can coexist without overriding each other.
+- Added internal `Single font` / `Advanced split` tabs in the popup, making the active mode clear without duplicating advanced controls.
+- Added separate advanced selectors for `Chinese / CJK` and `Non-CJK / English / numbers / punctuation`.
+- Applied the non-CJK font directly in the generated `font-family` stack, matching the behavior that already works in single-font mode.
+- Kept `@font-face` and `unicode-range` only for the CJK font, so CJK characters use the CJK selector while English, numbers, and other non-CJK text fall through to the directly named non-CJK font.
+- Added regression tests that verify advanced CSS generation and ensure basic mode still wins when advanced settings are stored but not active.
+
 ## 1.6.4 - 2026-06-05
 
 - Fixed Material Symbols ligature icons being overridden on sites such as Google Search Central Blog, which caused strings like `arrow_drop_down` to render as plain text after font replacement.

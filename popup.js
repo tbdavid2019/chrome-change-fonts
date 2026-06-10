@@ -24,10 +24,10 @@ const LOCALES = {
     modeHintAdvanced: '目前是 CJK / 英數分開模式。',
     modeBadgeBasic: '單一字體',
     modeBadgeAdvanced: 'CJK / 英數分開',
-    advancedPanelDescription: '把 CJK（中日韓）文字與標點交給一套字體，其餘非 CJK 文字交給另一套字體。',
+    advancedPanelDescription: 'CJK（中日韓）用一套字體，其餘文字用另一套。',
     advancedCjkLabel: 'CJK（中日韓）',
     advancedLatinLabel: '非 CJK（英數與標點）',
-    advancedHelpText: '單一字體與 CJK / 英數分開設定會分開保存，目前所在的分頁會控制頁面。',
+    advancedHelpText: '兩組設定分開保存，目前分頁會套用當前模式。',
   },
   en: {
     title: 'Website Font Changer 333',
@@ -54,10 +54,10 @@ const LOCALES = {
     modeHintAdvanced: 'CJK / Latin split mode is active.',
     modeBadgeBasic: 'Single font',
     modeBadgeAdvanced: 'CJK / Latin split',
-    advancedPanelDescription: 'Use one font for CJK (Chinese, Japanese, Korean) text and punctuation, and another font for non-CJK text.',
+    advancedPanelDescription: 'Use one font for CJK text, and another for everything else.',
     advancedCjkLabel: 'CJK (Chinese / Japanese / Korean)',
     advancedLatinLabel: 'Non-CJK (Latin / numbers / punctuation)',
-    advancedHelpText: 'Single-font and CJK / Latin split settings are saved separately. The active tab controls the page.',
+    advancedHelpText: 'These two modes are saved separately. The current tab controls the page.',
   },
 };
 
@@ -372,6 +372,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function syncModeUi() {
     const isAdvancedMode = currentFontMode === FONT_MODE_ADVANCED;
 
+    document.body.classList.toggle('advanced-mode', isAdvancedMode);
     fontSelect.disabled = false;
     ui.modeHintText.textContent = isAdvancedMode ? messages.modeHintAdvanced : messages.modeHintBasic;
     ui.basicModeTab.textContent = messages.modeBadgeBasic;

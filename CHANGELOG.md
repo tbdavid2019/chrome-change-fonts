@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.7 - 2026-06-10
+
+- Merged the popup title and `EN/中` language toggle into a single header row so they no longer waste two separate lines.
+- Tightened popup spacing and shortened the advanced split helper copy to reduce vertical overflow.
+- Reduced preview textarea height specifically in `CJK / 英數分開` mode so the popup is less likely to show a vertical scrollbar.
+
 ## 1.7.6 - 2026-06-09
 
 - Removed the popup header description text to free vertical space for the font mode tabs and settings controls.

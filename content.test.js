@@ -287,13 +287,30 @@ test('advanced mode limits only the CJK font and applies the non-CJK font direct
 
   assert.match(css, /font-family: "FontChangerCjk"/);
   assert.match(css, /src: local\("888Roundhand"\), local\("888Roundhand-Regular"\)/);
-  assert.match(css, /font-family: "FontChangerCjk", "JetBrains Mono", system-ui/);
+  assert.match(css, /font-family: "FontChangerCjk", "JetBrains Mono", "888Roundhand", "888Roundhand-Regular", system-ui/);
   assert.doesNotMatch(css, /src: local\("JetBrains Mono"\)/);
   assert.doesNotMatch(css, /JetBrainsMono-Regular/);
   assert.match(css, /unicode-range: U\+3000-303F/);
   assert.match(css, /font-weight: 100 900/);
   assert.match(css, /font-style: normal/);
   assert.equal((css.match(/unicode-range:/g) || []).length, 1);
+});
+
+test('advanced mode keeps a direct CJK fallback after the non-CJK font', () => {
+  const sandbox = loadContentScript();
+  sandbox.applyFontSettings({
+    fontMode: 'advanced',
+    advancedFontConfig: {
+      cjkFont: 'jf金萱那堤2.0',
+      cjkFontId: 'jf金萱那堤2.0',
+      latinFont: 'JetBrains Mono',
+      latinFontId: 'JetBrainsMono-Regular',
+    },
+  });
+
+  const css = sandbox.buildCss(false);
+
+  assert.match(css, /font-family: "FontChangerCjk", "JetBrains Mono", "jf金萱那堤2\.0", system-ui/);
 });
 
 test('basic mode remains effective after advanced config exists', () => {

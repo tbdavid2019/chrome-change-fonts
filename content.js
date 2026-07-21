@@ -47,16 +47,29 @@ function getFontStack() {
   if (shouldUseAdvancedFontMode()) {
     const stack = [];
     if (currentAdvancedFontConfig.cjkFont) {
-      stack.push(JSON.stringify(CJK_FONT_FAMILY));
+      pushFontFamily(stack, CJK_FONT_FAMILY);
     }
     if (currentAdvancedFontConfig.latinFont) {
-      stack.push(JSON.stringify(currentAdvancedFontConfig.latinFont));
+      pushFontFamily(stack, currentAdvancedFontConfig.latinFont);
     }
+    pushFontFamily(stack, currentAdvancedFontConfig.cjkFont);
+    pushFontFamily(stack, currentAdvancedFontConfig.cjkFontId);
     stack.push(FALLBACK_STACK);
     return stack.join(', ');
   }
   if (!currentFontFamily) return FALLBACK_STACK;
   return `${JSON.stringify(currentFontFamily)}, ${FALLBACK_STACK}`;
+}
+
+function pushFontFamily(stack, fontFamily) {
+  if (typeof fontFamily !== 'string' || !fontFamily) {
+    return;
+  }
+
+  const quotedFontFamily = JSON.stringify(fontFamily);
+  if (!stack.includes(quotedFontFamily)) {
+    stack.push(quotedFontFamily);
+  }
 }
 
 function createAdvancedFontConfig(config) {

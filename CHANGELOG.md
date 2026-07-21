@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.8 - 2026-06-11
+
+- Fixed `CJK / 英數分開` mode so CJK text still falls back to the selected CJK font when Chrome cannot resolve the generated `local()` font-face alias.
+- Kept the non-CJK font before the direct CJK fallback, so English and numbers continue to use the non-CJK selector while CJK characters use the selected CJK font.
+
 ## 1.7.7 - 2026-06-10
 
 - Merged the popup title and `EN/中` language toggle into a single header row so they no longer waste two separate lines.

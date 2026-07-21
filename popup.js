@@ -444,13 +444,26 @@ document.addEventListener('DOMContentLoaded', function () {
   function getAdvancedPreviewFontStack(config) {
     const stack = [];
     if (config.cjkFont) {
-      stack.push(JSON.stringify(PREVIEW_CJK_FONT_FAMILY));
+      pushFontFamily(stack, PREVIEW_CJK_FONT_FAMILY);
     }
     if (config.latinFont) {
-      stack.push(JSON.stringify(config.latinFont));
+      pushFontFamily(stack, config.latinFont);
     }
+    pushFontFamily(stack, config.cjkFont);
+    pushFontFamily(stack, config.cjkFontId);
     stack.push(FALLBACK_STACK);
     return stack.join(', ');
+  }
+
+  function pushFontFamily(stack, fontFamily) {
+    if (typeof fontFamily !== 'string' || !fontFamily) {
+      return;
+    }
+
+    const quotedFontFamily = JSON.stringify(fontFamily);
+    if (!stack.includes(quotedFontFamily)) {
+      stack.push(quotedFontFamily);
+    }
   }
 
   function updateStatus(isSiteDisabled) {

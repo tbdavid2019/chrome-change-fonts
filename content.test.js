@@ -344,3 +344,52 @@ test('site-level disable overrides enabled font replacement', () => {
   assert.equal(sandbox.isSiteDisabled(), false);
   assert.equal(sandbox.shouldApplyCustomFont(), true);
 });
+
+test('detects single-word material ligature icon text content', () => {
+  const sandbox = loadContentScript();
+
+  assert.equal(sandbox.isLikelyLigatureIconText('mic'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('search'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('home'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('settings'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('hello'), false);
+  assert.equal(sandbox.isLikelyLigatureIconText('world'), false);
+});
+
+test('excludes dynamically scanned stylesheet selectors', () => {
+  const sandbox = loadContentScript();
+  
+  // Mock document.styleSheets
+  sandbox.document.styleSheets = [
+    {
+      cssRules: [
+        {
+          type: 5, // FONT_FACE_RULE
+          style: {
+            getPropertyValue(prop) {
+              if (prop === 'font-family') return '"MyCustomIconFont"';
+              return '';
+            }
+          }
+        },
+        {
+          type: 1, // STYLE_RULE
+          selectorText: '.my-custom-icon-class-name, div > .another-dynamic-icon',
+          style: {
+            fontFamily: 'MyCustomIconFont'
+          }
+        }
+      ]
+    }
+  ];
+
+  sandbox.applyFont('Test Sans');
+  sandbox.scanStylesheets();
+
+  const css = sandbox.buildCss(false);
+
+  // Verifying both classes extracted from selectorText are added to the css exclusion list
+  assert.match(css, /\.my-custom-icon-class-name/);
+  assert.match(css, /\.another-dynamic-icon/);
+});
+

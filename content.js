@@ -14,6 +14,8 @@ let isFontEnabled = false;
 
 const rootStyles = new WeakMap();
 const trackedShadowRoots = new Set();
+const dynamicIconSelectors = [];
+const iconSelectorsSet = new Set();
 
 // 排除不需要改字體的圖示類別
 const EXCLUDE_CLASSES = [
@@ -40,8 +42,40 @@ const EXCLUDE_CLASSES = [
   '.fas',
   '.far',
   '.fab',
-  '.glyphicon'
+  '.glyphicon',
+  // 新增更廣泛的相容性排除規則 (Case-insensitive)
+  '[class*="icon" i]',
+  '[class*="symbol" i]',
+  '[class*="lucide" i]',
+  '[class*="feather" i]',
+  '[class*="octicon" i]',
+  '[class*="glyphicon" i]',
+  '[class*="fontawesome" i]',
+  '[class*="font-awesome" i]',
+  '[class*="fa-" i]',
+  '[class*="remixicon" i]',
+  '[class*="ri-" i]',
+  '[class*="boxicons" i]',
+  '[class*="bx-" i]',
+  '[class*="bootstrap-icons" i]',
+  '[class*="bi-" i]',
+  '[class*="tabler-icons" i]',
+  '[class*="ti-" i]',
+  '[class*="line-awesome" i]',
+  '[class*="la-" i]',
+  '[class*="weather-icons" i]',
+  '[class*="wi-" i]',
+  '[class*="dashicons" i]',
+  '[class*="typcn" i]'
 ];
+
+function isShadowRootNode(node) {
+  return node && (node.nodeType === 11 || typeof node.host !== 'undefined');
+}
+
+function isElementNode(node) {
+  return node && node.nodeType === 1;
+}
 
 function getFontStack() {
   if (shouldUseAdvancedFontMode()) {
@@ -145,17 +179,34 @@ function shouldApplyCustomFont() {
 }
 
 function buildFontTargetSuffix() {
-  const excludeSelectors = EXCLUDE_CLASSES.concat([`[${EXCLUDE_ATTRIBUTE}]`]);
+  const excludeSelectors = EXCLUDE_CLASSES
+    .concat(dynamicIconSelectors)
+    .concat([`[${EXCLUDE_ATTRIBUTE}]`]);
   const excludeSelector = `:not(${excludeSelectors.join('):not(')})`;
 
   return `${excludeSelector}:not([${EXCLUDE_ATTRIBUTE}] *)`;
 }
 
+const SINGLE_WORD_ICON_NAMES = new Set([
+  'mic', 'videocam', 'chat', 'forum', 'people', 'group', 'person', 'settings',
+  'help', 'info', 'search', 'close', 'menu', 'check', 'add', 'remove',
+  'edit', 'delete', 'share', 'star', 'heart', 'send', 'image', 'folder',
+  'home', 'play', 'pause', 'stop', 'back', 'forward', 'next', 'prev',
+  'upload', 'download', 'cloud', 'lock', 'unlock', 'key', 'email', 'mail',
+  'phone', 'bell', 'alert', 'clock', 'time', 'calendar', 'map', 'pin',
+  'tag', 'flag', 'bookmark', 'filter', 'sort', 'view', 'hide', 'show'
+]);
+
 function isLikelyLigatureIconText(text) {
-  const normalized = String(text || '').trim();
+  const normalized = String(text || '').trim().toLowerCase();
   if (!normalized) return false;
   if (normalized.length > 40) return false;
-  return /^[a-z0-9_]+$/.test(normalized) && normalized.includes('_');
+  
+  if (/^[a-z0-9_]+$/.test(normalized) && normalized.includes('_')) {
+    return true;
+  }
+  
+  return SINGLE_WORD_ICON_NAMES.has(normalized);
 }
 
 function isLigatureIconElement(element) {
@@ -224,7 +275,8 @@ function scanForLigatureIcons(rootNode) {
     updateLigatureIconMarker(rootNode);
   }
 
-  const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+  const doc = rootNode.nodeType === 9 ? rootNode : (rootNode.ownerDocument || document);
+  const walker = doc.createTreeWalker(rootNode, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
   let curr;
   while (curr = walker.nextNode()) {
     if (curr.nodeType === Node.TEXT_NODE) {
@@ -271,17 +323,104 @@ function buildCss(isShadowRoot) {
   `;
 }
 
+function isIconFontName(name) {
+  const normalized = name.toLowerCase();
+  return (
+    normalized.includes('icon') ||
+    normalized.includes('symbol') ||
+    normalized.includes('awesome') ||
+    normalized.includes('glyp') ||
+    normalized.includes('brand') ||
+    normalized.includes('lucide') ||
+    normalized.includes('feather') ||
+    normalized.includes('logo') ||
+    normalized.includes('social') ||
+    normalized.includes('payment')
+  );
+}
+
+function scanStylesheets(root) {
+  const doc = root || document;
+  const sheets = doc.styleSheets;
+  if (!sheets) return;
+
+  const detectedClasses = new Set();
+  const iconFontFamilies = new Set();
+
+  for (const sheet of sheets) {
+    try {
+      const rules = sheet.cssRules || sheet.rules;
+      if (!rules) continue;
+      
+      for (const rule of rules) {
+        if (rule.type === 5) { // CSSRule.FONT_FACE_RULE
+          const fontFamily = rule.style.getPropertyValue('font-family');
+          if (fontFamily) {
+            const cleanName = fontFamily.replace(/['"]/g, '').trim();
+            if (isIconFontName(cleanName)) {
+              iconFontFamilies.add(cleanName);
+            }
+          }
+        }
+      }
+
+      for (const rule of rules) {
+        if (rule.type === 1) { // CSSRule.STYLE_RULE
+          const fontFamily = rule.style.fontFamily;
+          if (fontFamily) {
+            const families = fontFamily.split(',').map(f => f.replace(/['"]/g, '').trim());
+            const hasIconFont = families.some(f => isIconFontName(f) || iconFontFamilies.has(f));
+            if (hasIconFont && rule.selectorText) {
+              const regex = /\.([a-zA-Z0-9_-]+)/g;
+              let match;
+              while ((match = regex.exec(rule.selectorText)) !== null) {
+                detectedClasses.add('.' + match[1]);
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore cross-origin stylesheet access error
+    }
+  }
+
+  let changed = false;
+  for (const className of detectedClasses) {
+    if (!iconSelectorsSet.has(className)) {
+      iconSelectorsSet.add(className);
+      dynamicIconSelectors.push(className);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    updateFontApplication();
+  }
+}
+
+let stylesheetScanTimeout;
+function triggerStylesheetScan(root) {
+  if (stylesheetScanTimeout) clearTimeout(stylesheetScanTimeout);
+  stylesheetScanTimeout = setTimeout(() => {
+    scanStylesheets(root);
+  }, 100);
+}
+
 function syncRoot(root) {
   if (!root) return;
   
   let style = rootStyles.get(root);
   if (!style || !style.isConnected) {
-    style = document.createElement('style');
+    const doc = root.nodeType === 9 ? root : (root.ownerDocument || document);
+    style = doc.createElement('style');
     style.className = 'font-changer-style';
     
     try {
       if (root === document) {
-        (document.head || document.documentElement).appendChild(style);
+        (doc.head || doc.documentElement).appendChild(style);
+      } else if (root.nodeType === 9) {
+        (root.head || root.documentElement).appendChild(style);
       } else {
         root.appendChild(style);
       }
@@ -291,16 +430,18 @@ function syncRoot(root) {
     }
   }
 
-  const nextCss = shouldApplyCustomFont() ? buildCss(root instanceof ShadowRoot) : '';
+  const nextCss = shouldApplyCustomFont() ? buildCss(isShadowRootNode(root)) : '';
   if (style.textContent !== nextCss) {
     style.textContent = nextCss;
   }
 }
 
 function syncAllRoots() {
+  scanStylesheets(document);
   scanForLigatureIcons(document.documentElement);
   syncRoot(document);
   trackedShadowRoots.forEach((root) => {
+    scanStylesheets(root);
     scanForLigatureIcons(root);
     syncRoot(root);
   });
@@ -308,7 +449,8 @@ function syncAllRoots() {
 
 // 使用 TreeWalker 遍歷 Shadow DOM，效能遠好於 querySelectorAll('*')
 function scanForShadowRoots(rootNode) {
-  const walker = document.createTreeWalker(
+  const doc = rootNode.nodeType === 9 ? rootNode : (rootNode.ownerDocument || document);
+  const walker = doc.createTreeWalker(
     rootNode,
     NodeFilter.SHOW_ELEMENT,
     {
@@ -319,7 +461,7 @@ function scanForShadowRoots(rootNode) {
   );
 
   const shadowRoots = [];
-  if (rootNode instanceof Element && rootNode.shadowRoot) {
+  if (isElementNode(rootNode) && rootNode.shadowRoot) {
     shadowRoots.push(rootNode.shadowRoot);
   }
 
@@ -348,6 +490,10 @@ function registerShadowRoot(root) {
           scanForLigatureIcons(node);
           if (node.nodeType === Node.ELEMENT_NODE) {
             scanForShadowRoots(node);
+            const tagName = node.tagName.toLowerCase();
+            if (tagName === 'style' || tagName === 'link') {
+              triggerStylesheetScan(root);
+            }
           }
         }
       }
@@ -357,6 +503,7 @@ function registerShadowRoot(root) {
 
   // 初始掃描內層
   scanForShadowRoots(root);
+  scanStylesheets(root);
 }
 
 // 主動掃描與初始化
@@ -407,6 +554,10 @@ const documentObserver = new MutationObserver((mutations) => {
           scanForLigatureIcons(node);
           if (node.nodeType === Node.ELEMENT_NODE) {
             scanForShadowRoots(node);
+            const tagName = node.tagName.toLowerCase();
+            if (tagName === 'style' || tagName === 'link') {
+              triggerStylesheetScan(document);
+            }
           }
         }
       }
@@ -415,6 +566,16 @@ const documentObserver = new MutationObserver((mutations) => {
 });
 
 documentObserver.observe(document, { childList: true, subtree: true });
+
+// 監聽 Document Picture-in-Picture 視窗
+if (typeof documentPictureInPicture !== 'undefined' && documentPictureInPicture) {
+  documentPictureInPicture.addEventListener('enter', (event) => {
+    const pipWindow = event.window;
+    if (pipWindow && pipWindow.document) {
+      registerShadowRoot(pipWindow.document);
+    }
+  });
+}
 
 // 監聽訊息
 chrome.runtime.onMessage.addListener((request) => {

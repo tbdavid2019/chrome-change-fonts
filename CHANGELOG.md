@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.9 - 2026-07-21
+
+- Improved compatibility with Google Meet's Picture-in-Picture (PiP) window, preventing control buttons (like `mic`, `videocam_off`, `call_end`) from rendering as fallback text.
+- Fixed icon font rendering issues on Claude.ai and other modern sites by implementing a dynamic stylesheet scanning mechanism (`scanStylesheets`) that automatically detects and excludes custom web icon fonts.
+- Expanded the default `EXCLUDE_CLASSES` to include case-insensitive matches for popular icon libraries (e.g. Lucide, Feather, FontAwesome, Remix Icon, Boxicons, Tabler Icons, etc.).
+- Enhanced single-word ligature icon detection to cover common icons without underscores (such as `mic`, `search`, `home`, `settings`).
+- Resolved cross-realm element verification bugs inside iframe and Picture-in-Picture window contexts.
+
 ## 1.7.8 - 2026-06-11
 
 - Fixed `CJK / 英數分開` mode so CJK text still falls back to the selected CJK font when Chrome cannot resolve the generated `local()` font-face alias.

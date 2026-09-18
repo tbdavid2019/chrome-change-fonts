@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.8.0 - 2026-09-18
+
+- Fixed Google Meet control icons (`mic`, `videocam`, `center_focus_weak`, `more_vert`, `call_end`, `chat`, `domain_disabled`, etc.) turning into plain text strings.
+- Enforced valid CSS `font-family: 'Google Symbols', 'Material Symbols Outlined', 'Google Material Icons', 'Material Icons' !important` specifically on icon elements, strictly avoiding CSS-wide keywords (`inherit`) in family lists to ensure Chromium CSSOM acceptance.
+- Protected Google Meet buttons and interactive containers in selector exclusions without forcing icon fonts onto normal button text (e.g. "Present", "Leave call").
+- Added automatic sharing and copying of font resources (`@font-face` rules, Google Fonts stylesheets, and `FontFace` objects) into Document Picture-in-Picture (PiP) windows, with initialization-only lifecycle guards and `shouldApplyCustomFont` checks to avoid redundant overhead on minor mutations.
+- Added normalization for zero-width characters (`\u200B`, `\uFEFF`) and bidi isolate marks (`\u200E`, `\u200F`, `\u2066`–`\u2069`) in ligature text detection.
+- Fixed marker cleanup so when an icon's text transitions back to normal text, `data-font-changer-ligature-icon` and `data-font-changer-exclude` are properly removed from the element and its ancestor.
+- Expanded `SINGLE_WORD_ICON_NAMES` and interactive button selectors for Google web applications.
+
 ## 1.7.9 - 2026-07-21
 
 - Improved compatibility with Google Meet's Picture-in-Picture (PiP) window, preventing control buttons (like `mic`, `videocam_off`, `call_end`) from rendering as fallback text.

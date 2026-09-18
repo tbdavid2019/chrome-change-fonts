@@ -1,7 +1,8 @@
 const FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const SITE_DISABLE_KEY = 'fontChangerDisabled';
 const EXCLUDE_ATTRIBUTE = 'data-font-changer-exclude';
-const INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [aria-haspopup], [aria-expanded]';
+const LIGATURE_ICON_ATTRIBUTE = 'data-font-changer-ligature-icon';
+const INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [aria-haspopup], [aria-expanded], [jsaction], [data-tooltip], [data-is-muted]';
 const FONT_MODE_BASIC = 'basic';
 const FONT_MODE_ADVANCED = 'advanced';
 const CJK_FONT_FAMILY = 'FontChangerCjk';
@@ -14,6 +15,7 @@ let isFontEnabled = false;
 
 const rootStyles = new WeakMap();
 const trackedShadowRoots = new Set();
+const trackedPipDocuments = new Set();
 const dynamicIconSelectors = [];
 const iconSelectorsSet = new Set();
 
@@ -66,7 +68,12 @@ const EXCLUDE_CLASSES = [
   '[class*="weather-icons" i]',
   '[class*="wi-" i]',
   '[class*="dashicons" i]',
-  '[class*="typcn" i]'
+  '[class*="typcn" i]',
+  '[data-font-changer-ligature-icon]',
+  '[data-icon]',
+  '[data-icon-name]',
+  '[data-material-icon]',
+  '[data-symbol]'
 ];
 
 function isShadowRootNode(node) {
@@ -178,10 +185,35 @@ function shouldApplyCustomFont() {
   return isFontEnabled && !isSiteDisabled();
 }
 
+function isGoogleMeetSite() {
+  try {
+    const host = (typeof location !== 'undefined' && location.hostname) ? location.hostname : '';
+    if (host === 'meet.google.com' || host.endsWith('.meet.google.com')) return true;
+    if (typeof document !== 'undefined' && document.location && (document.location.hostname === 'meet.google.com' || document.location.hostname.endsWith('.meet.google.com'))) return true;
+  } catch (_e) {}
+  return false;
+}
+
 function buildFontTargetSuffix() {
-  const excludeSelectors = EXCLUDE_CLASSES
+  let excludeSelectors = EXCLUDE_CLASSES
     .concat(dynamicIconSelectors)
     .concat([`[${EXCLUDE_ATTRIBUTE}]`]);
+
+  if (isGoogleMeetSite()) {
+    excludeSelectors = excludeSelectors.concat([
+      'button',
+      'button *',
+      '[role="button"]',
+      '[role="button"] *',
+      '[jsaction]',
+      '[class*="notranslate"]',
+      '[translate="no"]',
+      '.google-symbols',
+      '[class*="google-symbols"]',
+      '[class*="google-material"]'
+    ]);
+  }
+
   const excludeSelector = `:not(${excludeSelectors.join('):not(')})`;
 
   return `${excludeSelector}:not([${EXCLUDE_ATTRIBUTE}] *)`;
@@ -194,11 +226,26 @@ const SINGLE_WORD_ICON_NAMES = new Set([
   'home', 'play', 'pause', 'stop', 'back', 'forward', 'next', 'prev',
   'upload', 'download', 'cloud', 'lock', 'unlock', 'key', 'email', 'mail',
   'phone', 'bell', 'alert', 'clock', 'time', 'calendar', 'map', 'pin',
-  'tag', 'flag', 'bookmark', 'filter', 'sort', 'view', 'hide', 'show'
+  'tag', 'flag', 'bookmark', 'filter', 'sort', 'view', 'hide', 'show',
+  'mood', 'hand', 'cast', 'tune', 'done', 'clear', 'more', 'refresh', 'sync',
+  'fullscreen', 'warning', 'error', 'cancel', 'schedule', 'language', 'translate',
+  'visibility', 'face', 'sensors', 'speed', 'security', 'shield', 'bolt',
+  'flash', 'circle', 'square', 'lens', 'copy', 'print', 'save', 'note',
+  'draft', 'terminal', 'code', 'laptop', 'desktop', 'headset', 'speaker',
+  'volume', 'link', 'launch', 'login', 'logout', 'power', 'thumb', 'broadcast',
+  'subtitles', 'caption', 'captions', 'shapes', 'category', 'record', 'recording',
+  'pan', 'tool', 'present'
 ]);
 
+function normalizeLigatureText(text) {
+  return String(text || '')
+    .replace(/[\u200B-\u200D\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
 function isLikelyLigatureIconText(text) {
-  const normalized = String(text || '').trim().toLowerCase();
+  const normalized = normalizeLigatureText(text);
   if (!normalized) return false;
   if (normalized.length > 40) return false;
   
@@ -234,20 +281,39 @@ function markExcludedElement(element) {
 
 function markLigatureIconElement(element) {
   markExcludedElement(element);
+  if (element && typeof element.setAttribute === 'function') {
+    element.setAttribute(LIGATURE_ICON_ATTRIBUTE, '1');
+  }
 
   if (typeof element.closest === 'function') {
-    markExcludedElement(element.closest(INTERACTIVE_EXCLUDE_SELECTOR));
+    const ancestor = element.closest(INTERACTIVE_EXCLUDE_SELECTOR);
+    if (ancestor && ancestor !== element) {
+      markExcludedElement(ancestor);
+    }
   }
 }
 
 function updateLigatureIconTextNode(textNode) {
-  if (!textNode || !isLikelyLigatureIconText(textNode.textContent)) {
-    return;
-  }
+  if (!textNode) return;
 
   const parent = textNode.parentElement || textNode.parentNode;
-  if (parent && parent.nodeType === Node.ELEMENT_NODE) {
+  if (!parent || parent.nodeType !== Node.ELEMENT_NODE) return;
+
+  if (isLikelyLigatureIconText(textNode.textContent)) {
     markLigatureIconElement(parent);
+  } else if (parent.hasAttribute(LIGATURE_ICON_ATTRIBUTE)) {
+    parent.removeAttribute(LIGATURE_ICON_ATTRIBUTE);
+    if (typeof parent.querySelector !== 'function' || !parent.querySelector(`[${EXCLUDE_ATTRIBUTE}]`)) {
+      parent.removeAttribute(EXCLUDE_ATTRIBUTE);
+    }
+    if (typeof parent.closest === 'function') {
+      const ancestor = parent.closest(INTERACTIVE_EXCLUDE_SELECTOR);
+      if (ancestor && ancestor !== parent && typeof ancestor.querySelector === 'function') {
+        if (!ancestor.querySelector(`[${EXCLUDE_ATTRIBUTE}]`)) {
+          ancestor.removeAttribute(EXCLUDE_ATTRIBUTE);
+        }
+      }
+    }
   }
 }
 
@@ -259,7 +325,10 @@ function updateLigatureIconMarker(element) {
   if (isLigatureIconElement(element)) {
     markLigatureIconElement(element);
   } else if (element.hasAttribute(EXCLUDE_ATTRIBUTE)) {
-    element.removeAttribute(EXCLUDE_ATTRIBUTE);
+    if (typeof element.querySelector !== 'function' || !element.querySelector(`[${EXCLUDE_ATTRIBUTE}]`)) {
+      element.removeAttribute(EXCLUDE_ATTRIBUTE);
+      element.removeAttribute(LIGATURE_ICON_ATTRIBUTE);
+    }
   }
 }
 
@@ -319,6 +388,14 @@ function buildCss(isShadowRoot) {
     }
     ${inputSelectors.join(',\n    ')} {
       font-family: ${getFontStack()} !important;
+    }
+    [${LIGATURE_ICON_ATTRIBUTE}],
+    .google-symbols,
+    [class*="google-symbols"],
+    [class*="google-material"],
+    [class*="material-symbols"],
+    [class*="material-icons"] {
+      font-family: 'Google Symbols', 'Material Symbols Outlined', 'Google Material Icons', 'Material Icons' !important;
     }
   `;
 }
@@ -441,6 +518,11 @@ function syncAllRoots() {
   scanForLigatureIcons(document.documentElement);
   syncRoot(document);
   trackedShadowRoots.forEach((root) => {
+    if (root.nodeType === 9 && trackedPipDocuments.has(root)) {
+      if (shouldApplyCustomFont()) {
+        copyFontResourcesToPip(root);
+      }
+    }
     scanStylesheets(root);
     scanForLigatureIcons(root);
     syncRoot(root);
@@ -504,6 +586,7 @@ function registerShadowRoot(root) {
   // 初始掃描內層
   scanForShadowRoots(root);
   scanStylesheets(root);
+  scanForLigatureIcons(root);
 }
 
 // 主動掃描與初始化
@@ -549,6 +632,10 @@ const documentObserver = new MutationObserver((mutations) => {
   
   scanTimeout = setTimeout(() => {
     for (const mutation of mutations) {
+      if (mutation.type === 'characterData') {
+        updateLigatureIconTextNode(mutation.target);
+        continue;
+      }
       for (const node of mutation.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
           scanForLigatureIcons(node);
@@ -565,15 +652,191 @@ const documentObserver = new MutationObserver((mutations) => {
   }, 100);
 });
 
-documentObserver.observe(document, { childList: true, subtree: true });
+documentObserver.observe(document, { childList: true, subtree: true, characterData: true });
+
+function collectFontRules() {
+  const fontRules = [];
+  const sheets = document.styleSheets;
+  if (sheets) {
+    for (const sheet of sheets) {
+      try {
+        const rules = sheet.cssRules || sheet.rules;
+        if (!rules) continue;
+        for (const rule of rules) {
+          if (rule.type === 5 || (rule.cssText && rule.cssText.startsWith('@font-face'))) {
+            fontRules.push(rule.cssText);
+          }
+        }
+      } catch (_e) {
+        // Cross-origin stylesheet access error
+      }
+    }
+  }
+
+  // Also extract from inline <style> tags in case cssRules failed or wasn't accessible
+  try {
+    const styleElements = document.querySelectorAll('style:not(.font-changer-style):not(.font-changer-pip-font-faces)');
+    for (const styleEl of styleElements) {
+      const text = styleEl.textContent || '';
+      if (text.includes('@font-face')) {
+        const matches = text.match(/@font-face\s*\{[^}]+\}/g);
+        if (matches) {
+          for (const match of matches) {
+            if (!fontRules.includes(match)) {
+              fontRules.push(match);
+            }
+          }
+        }
+      }
+    }
+  } catch (_e) {}
+
+  return fontRules.join('\n');
+}
+
+function copyFontResourcesToPip(pipDoc) {
+  if (!pipDoc) return;
+
+  // 1. Share FontFace objects via CSS Font Loading API
+  if (document.fonts && pipDoc.fonts) {
+    try {
+      document.fonts.forEach((fontFace) => {
+        try {
+          pipDoc.fonts.add(fontFace);
+        } catch (_e) {}
+      });
+    } catch (_e) {}
+  }
+
+  // 2. Copy font-related <link> tags (e.g. Google Fonts / gstatic)
+  try {
+    const links = document.querySelectorAll('link[rel="stylesheet"], link[rel="preload"][as="font"], link[rel="preload"][as="style"]');
+    for (const link of links) {
+      const href = link.href || '';
+      if (
+        href.includes('fonts.googleapis.com') ||
+        href.includes('gstatic.com') ||
+        href.includes('font') ||
+        href.includes('icon') ||
+        href.includes('symbol')
+      ) {
+        if (!pipDoc.querySelector(`link[href="${href}"]`)) {
+          const cloned = pipDoc.createElement('link');
+          cloned.rel = link.rel;
+          cloned.href = href;
+          if (link.as) cloned.as = link.as;
+          if (link.crossOrigin) cloned.crossOrigin = link.crossOrigin;
+          (pipDoc.head || pipDoc.documentElement).appendChild(cloned);
+        }
+      }
+    }
+  } catch (_e) {}
+
+  // 3. Copy @font-face rules from main document stylesheets
+  try {
+    const fontCSS = collectFontRules();
+    if (fontCSS) {
+      let fontStyle = pipDoc.querySelector('style.font-changer-pip-font-faces');
+      if (!fontStyle) {
+        fontStyle = pipDoc.createElement('style');
+        fontStyle.className = 'font-changer-pip-font-faces';
+        (pipDoc.head || pipDoc.documentElement).appendChild(fontStyle);
+      }
+      if (fontStyle.textContent !== fontCSS) {
+        fontStyle.textContent = fontCSS;
+      }
+    }
+  } catch (_e) {}
+}
+
+function registerDocumentPictureInPicture(pipWindow) {
+  if (!pipWindow || !pipWindow.document) return;
+  const pipDoc = pipWindow.document;
+
+  if (trackedPipDocuments.has(pipDoc)) {
+    if (shouldApplyCustomFont()) {
+      copyFontResourcesToPip(pipDoc);
+      scanStylesheets(pipDoc);
+      scanForLigatureIcons(pipDoc);
+      syncRoot(pipDoc);
+    }
+    return;
+  }
+
+  trackedPipDocuments.add(pipDoc);
+  trackedShadowRoots.add(pipDoc);
+
+  if (shouldApplyCustomFont()) {
+    copyFontResourcesToPip(pipDoc);
+    scanStylesheets(pipDoc);
+    scanForLigatureIcons(pipDoc);
+    syncRoot(pipDoc);
+    scanForShadowRoots(pipDoc);
+
+    if (document.fonts && typeof document.fonts.ready?.then === 'function') {
+      document.fonts.ready.then(() => {
+        if (shouldApplyCustomFont() && trackedPipDocuments.has(pipDoc)) {
+          copyFontResourcesToPip(pipDoc);
+        }
+      }).catch(() => {});
+    }
+  }
+
+  let pipScanTimeout;
+  const observer = new MutationObserver((mutations) => {
+    if (!shouldApplyCustomFont()) return;
+
+    if (pipScanTimeout) clearTimeout(pipScanTimeout);
+    pipScanTimeout = setTimeout(() => {
+      let hasStyleOrLinkAdded = false;
+
+      for (const mutation of mutations) {
+        if (mutation.type === 'characterData') {
+          updateLigatureIconTextNode(mutation.target);
+          continue;
+        }
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
+            scanForLigatureIcons(node);
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              scanForShadowRoots(node);
+              const tagName = node.tagName.toLowerCase();
+              if (tagName === 'style' || tagName === 'link') {
+                hasStyleOrLinkAdded = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (hasStyleOrLinkAdded) {
+        copyFontResourcesToPip(pipDoc);
+        triggerStylesheetScan(pipDoc);
+      }
+    }, 100);
+  });
+
+  try {
+    observer.observe(pipDoc, { childList: true, subtree: true, characterData: true });
+  } catch (_e) {}
+
+  const cleanup = () => {
+    observer.disconnect();
+    trackedPipDocuments.delete(pipDoc);
+    trackedShadowRoots.delete(pipDoc);
+  };
+
+  pipWindow.addEventListener('pagehide', cleanup, { once: true });
+  pipWindow.addEventListener('unload', cleanup, { once: true });
+}
 
 // 監聽 Document Picture-in-Picture 視窗
 if (typeof documentPictureInPicture !== 'undefined' && documentPictureInPicture) {
+  if (documentPictureInPicture.window) {
+    registerDocumentPictureInPicture(documentPictureInPicture.window);
+  }
   documentPictureInPicture.addEventListener('enter', (event) => {
-    const pipWindow = event.window;
-    if (pipWindow && pipWindow.document) {
-      registerShadowRoot(pipWindow.document);
-    }
+    registerDocumentPictureInPicture(event.window || documentPictureInPicture.window);
   });
 }
 

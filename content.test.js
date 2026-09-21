@@ -623,3 +623,299 @@ test('registerDocumentPictureInPicture does not copy fonts when font replacement
   sandbox.registerDocumentPictureInPicture(pipWindow);
   assert.equal(copied, false);
 });
+
+test('isGooglePlaySite accurately detects Google Play domains', () => {
+  const sandbox = loadContentScript();
+  assert.equal(sandbox.isGooglePlaySite(), false);
+
+  sandbox.location.hostname = 'play.google.com';
+  assert.equal(sandbox.isGooglePlaySite(), true);
+
+  sandbox.location.hostname = 'subdomain.play.google.com';
+  assert.equal(sandbox.isGooglePlaySite(), true);
+
+  sandbox.location.hostname = 'google.com';
+  assert.equal(sandbox.isGooglePlaySite(), false);
+});
+
+test('detects Google Play ligature icons including devices and family_home', () => {
+  const sandbox = loadContentScript();
+
+  assert.equal(sandbox.isLikelyLigatureIconText('devices'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('family_home'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('expand_more'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('arrow_forward'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('search'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('help_outline'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('play_apps'), true);
+});
+
+test('buildCss on Google Play prioritizes Google Material Icons and prevents uppercase transforms', () => {
+  const sandbox = loadContentScript();
+  sandbox.location.hostname = 'play.google.com';
+  sandbox.applyFont('Test Sans');
+
+  const css = sandbox.buildCss(false);
+
+  // Excludes Google Play icon classes in font target
+  assert.match(css, /\.google-material-icons/);
+  assert.match(css, /\[class\*="google-material"\]/);
+  assert.match(css, /\.material-icons-extended/);
+
+  // Play Store ligature icon stack prioritizes Google Material Icons
+  assert.match(css, /\[data-font-changer-ligature-icon\]\s*\{\s*font-family:\s*'Google Material Icons',\s*'Material Icons Extended'/);
+
+  // Enforces text-transform: none !important so button uppercase rules do not break ligatures
+  assert.match(css, /text-transform:\s*none\s*!important/);
+
+  // Protects google_logo ligature with Google Sans
+  assert.match(css, /\[data-font-changer-google-logo\]/);
+  assert.match(css, /font-family:\s*'Google Sans',\s*'Product Sans'/);
+});
+
+test('detects google_logo Play and marks element for Google Sans preservation', () => {
+  const sandbox = loadContentScript();
+  sandbox.location.hostname = 'play.google.com';
+  const spanAttributes = new Map();
+  const anchorAttributes = new Map();
+
+  const anchor = {
+    setAttribute(name, value) {
+      anchorAttributes.set(name, value);
+    },
+    removeAttribute(name) {
+      anchorAttributes.delete(name);
+    }
+  };
+
+  const span = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    childElementCount: 0,
+    setAttribute(name, value) {
+      spanAttributes.set(name, value);
+    },
+    removeAttribute(name) {
+      spanAttributes.delete(name);
+    },
+    hasAttribute(name) {
+      return spanAttributes.has(name);
+    },
+    closest(selector) {
+      if (selector === 'a') return anchor;
+      return null;
+    }
+  };
+
+  const textNode = {
+    nodeType: sandbox.Node.TEXT_NODE,
+    textContent: 'google_logo Play',
+    parentElement: span,
+    parentNode: span
+  };
+
+  sandbox.updateLigatureIconTextNode(textNode);
+
+  assert.equal(spanAttributes.get('data-font-changer-google-logo'), '1');
+  assert.equal(spanAttributes.get('data-font-changer-exclude'), '1');
+  assert.equal(anchorAttributes.get('data-font-changer-google-logo'), '1');
+  assert.equal(anchorAttributes.get('data-font-changer-exclude'), '1');
+
+  // When text changes away from google_logo
+  textNode.textContent = 'Regular Title';
+  sandbox.updateLigatureIconTextNode(textNode);
+
+  assert.equal(spanAttributes.has('data-font-changer-google-logo'), false);
+  assert.equal(anchorAttributes.has('data-font-changer-google-logo'), false);
+
+  // Does NOT mark on non-Google Play site
+  sandbox.location.hostname = 'example.com';
+  textNode.textContent = 'google_logo Play';
+  sandbox.updateLigatureIconTextNode(textNode);
+  assert.equal(spanAttributes.has('data-font-changer-google-logo'), false);
+});
+
+test('does not mark regular buttons like Payment or Update as ligature icons', () => {
+  const sandbox = loadContentScript();
+  const buttonAttributes = new Map();
+  const button = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'BUTTON',
+    className: 'btn btn-primary',
+    childElementCount: 0,
+    childNodes: [{ nodeType: sandbox.Node.TEXT_NODE, textContent: 'Payment' }],
+    setAttribute(name, value) {
+      buttonAttributes.set(name, value);
+    },
+    hasAttribute(name) {
+      return buttonAttributes.has(name);
+    },
+    removeAttribute(name) {
+      buttonAttributes.delete(name);
+    }
+  };
+
+  sandbox.updateLigatureIconMarker(button);
+  assert.equal(buttonAttributes.has('data-font-changer-ligature-icon'), false);
+  assert.equal(buttonAttributes.has('data-font-changer-exclude'), false);
+
+  // Also test Update button
+  button.childNodes[0].textContent = 'Update';
+  sandbox.updateLigatureIconMarker(button);
+  assert.equal(buttonAttributes.has('data-font-changer-ligature-icon'), false);
+  assert.equal(buttonAttributes.has('data-font-changer-exclude'), false);
+
+  // But an actual icon element with icon class or tag DOES get marked
+  const iconSpanAttributes = new Map();
+  const iconSpan = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'I',
+    className: 'google-material-icons',
+    childElementCount: 0,
+    childNodes: [{ nodeType: sandbox.Node.TEXT_NODE, textContent: 'devices' }],
+    setAttribute(name, value) {
+      iconSpanAttributes.set(name, value);
+    },
+    hasAttribute(name) {
+      return iconSpanAttributes.has(name);
+    },
+    removeAttribute(name) {
+      iconSpanAttributes.delete(name);
+    },
+    closest() {
+      return null;
+    }
+  };
+
+  sandbox.updateLigatureIconMarker(iconSpan);
+  assert.equal(iconSpanAttributes.get('data-font-changer-ligature-icon'), '1');
+  assert.equal(iconSpanAttributes.get('data-font-changer-exclude'), '1');
+});
+
+test('updateLigatureIconMarker does not mark container or body elements when descendant contains google_logo', () => {
+  const sandbox = loadContentScript();
+  const bodyAttributes = new Map();
+  const body = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'BODY',
+    childElementCount: 2,
+    textContent: 'google_logo Play and other content',
+    setAttribute(name, value) {
+      bodyAttributes.set(name, value);
+    },
+    hasAttribute(name) {
+      return bodyAttributes.has(name);
+    },
+    removeAttribute(name) {
+      bodyAttributes.delete(name);
+    }
+  };
+
+  sandbox.updateLigatureIconMarker(body);
+
+  assert.equal(bodyAttributes.has('data-font-changer-google-logo'), false);
+  assert.equal(bodyAttributes.has('data-font-changer-exclude'), false);
+});
+
+test('preserves classless single-word ligature icon styled with inline font-family', () => {
+  const sandbox = loadContentScript();
+  const spanAttributes = new Map();
+  const span = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'SPAN',
+    className: '',
+    childElementCount: 0,
+    childNodes: [{ nodeType: sandbox.Node.TEXT_NODE, textContent: 'search' }],
+    getAttribute(name) {
+      if (name === 'style') return "font-family: 'Material Icons'";
+      return null;
+    },
+    setAttribute(name, value) {
+      spanAttributes.set(name, value);
+    },
+    hasAttribute(name) {
+      return spanAttributes.has(name);
+    },
+    removeAttribute(name) {
+      spanAttributes.delete(name);
+    },
+    closest() {
+      return null;
+    }
+  };
+
+  sandbox.updateLigatureIconMarker(span);
+  assert.equal(spanAttributes.get('data-font-changer-ligature-icon'), '1');
+  assert.equal(spanAttributes.get('data-font-changer-exclude'), '1');
+});
+
+test('handleRemovedNodes clears logo markers on anchor when logo node is removed', () => {
+  const sandbox = loadContentScript();
+  const anchorAttributes = new Map([
+    ['data-font-changer-google-logo', '1'],
+    ['data-font-changer-exclude', '1']
+  ]);
+  const anchor = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'A',
+    textContent: 'Categories',
+    hasAttribute(name) {
+      return anchorAttributes.has(name);
+    },
+    removeAttribute(name) {
+      anchorAttributes.delete(name);
+    },
+    querySelector() {
+      return null;
+    }
+  };
+
+  sandbox.handleRemovedNodes({
+    target: anchor,
+    removedNodes: [{ nodeType: sandbox.Node.ELEMENT_NODE }]
+  });
+
+  assert.equal(anchorAttributes.has('data-font-changer-google-logo'), false);
+  assert.equal(anchorAttributes.has('data-font-changer-exclude'), false);
+});
+
+test('handleRemovedNodes clears logo markers on marked ancestor when child wrapper removes logo node', () => {
+  const sandbox = loadContentScript();
+  const anchorAttributes = new Map([
+    ['data-font-changer-google-logo', '1'],
+    ['data-font-changer-exclude', '1']
+  ]);
+  const anchor = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'A',
+    textContent: 'Categories',
+    hasAttribute(name) {
+      return anchorAttributes.has(name);
+    },
+    removeAttribute(name) {
+      anchorAttributes.delete(name);
+    },
+    querySelector() {
+      return null;
+    }
+  };
+  const innerWrapper = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'DIV',
+    hasAttribute() { return false; },
+    closest(selector) {
+      if (selector.includes('data-font-changer-google-logo')) return anchor;
+      return null;
+    }
+  };
+
+  sandbox.handleRemovedNodes({
+    target: innerWrapper,
+    removedNodes: [{ nodeType: sandbox.Node.ELEMENT_NODE }]
+  });
+
+  assert.equal(anchorAttributes.has('data-font-changer-google-logo'), false);
+  assert.equal(anchorAttributes.has('data-font-changer-exclude'), false);
+});
+
+
+

@@ -17,17 +17,15 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`1.7.7`
+目前版本：`1.8.1`
 
 本次版本修正：
 
-- 把 popup 標題與 `EN/中` 語言切換按鈕合併到同一列，避免各自佔用一行
-- 壓縮 popup 間距，並縮短 `CJK / 英數分開` 模式的說明文字，減少垂直空間浪費
-- 在 `CJK / 英數分開` 模式下縮小即時預覽區高度，降低 popup 出現垂直 scrollbar 的機率
-
-上一版更新：
-
-- 移除 popup 標題下方的說明文字，將空間留給字體模式 tab 與設定控制項
+- 修正 Google Play 商店（play.google.com）上各類圖示（`devices`、`family_home`、`expand_more`、`arrow_forward`、`search` 等）變成大寫英文字母字串（如 `DEVICES`、`EXPAND_MORE`、`SEARCH`）的問題
+- 修正 Google Play 頂部標誌 `google_logo Play` 遺失連字字型渲染的問題，排除自訂字體覆蓋並維持 Google Sans 正確呈現標誌
+- 依 icon 種類細分字體回退順序，Google Play 優先使用 `Google Material Icons` / `Material Icons Extended`，避免被精簡版的 `Google Symbols` 阻斷圖示字形
+- 為圖示強制加上 `text-transform: none !important`，防止 Material Design 按鈕的大寫規則破壞連字字型（Ligature）匹配
+- 擴充單字圖示清單（新增 `devices`, `device`, `tablet`, `apps`, `reviews`, `payment`, `redeem`, `badge`, `verified` 等）
 
 近期版本也包含：
 

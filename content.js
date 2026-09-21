@@ -2,6 +2,7 @@ const FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI'
 const SITE_DISABLE_KEY = 'fontChangerDisabled';
 const EXCLUDE_ATTRIBUTE = 'data-font-changer-exclude';
 const LIGATURE_ICON_ATTRIBUTE = 'data-font-changer-ligature-icon';
+const GOOGLE_LOGO_ATTRIBUTE = 'data-font-changer-google-logo';
 const INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [aria-haspopup], [aria-expanded], [jsaction], [data-tooltip], [data-is-muted]';
 const FONT_MODE_BASIC = 'basic';
 const FONT_MODE_ADVANCED = 'advanced';
@@ -38,6 +39,9 @@ const EXCLUDE_CLASSES = [
   '.google-symbols',
   '[class*="google-symbols"]',
   '[class*="google-material"]',
+  '.material-icons-extended',
+  '[class*="material-icons-extended"]',
+  '.DPvwYc',
   'mat-icon',
   'md-icon',
   '.fa',
@@ -70,6 +74,7 @@ const EXCLUDE_CLASSES = [
   '[class*="dashicons" i]',
   '[class*="typcn" i]',
   '[data-font-changer-ligature-icon]',
+  '[data-font-changer-google-logo]',
   '[data-icon]',
   '[data-icon-name]',
   '[data-material-icon]',
@@ -187,9 +192,24 @@ function shouldApplyCustomFont() {
 
 function isGoogleMeetSite() {
   try {
-    const host = (typeof location !== 'undefined' && location.hostname) ? location.hostname : '';
+    const host = (typeof location !== 'undefined' && (location.hostname || location.host)) ? (location.hostname || location.host) : '';
     if (host === 'meet.google.com' || host.endsWith('.meet.google.com')) return true;
-    if (typeof document !== 'undefined' && document.location && (document.location.hostname === 'meet.google.com' || document.location.hostname.endsWith('.meet.google.com'))) return true;
+    if (typeof document !== 'undefined' && document.location) {
+      const docHost = document.location.hostname || document.location.host || '';
+      if (docHost === 'meet.google.com' || docHost.endsWith('.meet.google.com')) return true;
+    }
+  } catch (_e) {}
+  return false;
+}
+
+function isGooglePlaySite() {
+  try {
+    const host = (typeof location !== 'undefined' && (location.hostname || location.host)) ? (location.hostname || location.host) : '';
+    if (host === 'play.google.com' || host.endsWith('.play.google.com')) return true;
+    if (typeof document !== 'undefined' && document.location) {
+      const docHost = document.location.hostname || document.location.host || '';
+      if (docHost === 'play.google.com' || docHost.endsWith('.play.google.com')) return true;
+    }
   } catch (_e) {}
   return false;
 }
@@ -197,7 +217,11 @@ function isGoogleMeetSite() {
 function buildFontTargetSuffix() {
   let excludeSelectors = EXCLUDE_CLASSES
     .concat(dynamicIconSelectors)
-    .concat([`[${EXCLUDE_ATTRIBUTE}]`]);
+    .concat([
+      `[${EXCLUDE_ATTRIBUTE}]`,
+      `[${GOOGLE_LOGO_ATTRIBUTE}]`,
+      `[${GOOGLE_LOGO_ATTRIBUTE}] *`
+    ]);
 
   if (isGoogleMeetSite()) {
     excludeSelectors = excludeSelectors.concat([
@@ -211,6 +235,18 @@ function buildFontTargetSuffix() {
       '.google-symbols',
       '[class*="google-symbols"]',
       '[class*="google-material"]'
+    ]);
+  } else if (isGooglePlaySite()) {
+    excludeSelectors = excludeSelectors.concat([
+      '.google-material-icons',
+      '[class*="google-material"]',
+      '.google-symbols',
+      '[class*="google-symbols"]',
+      '.material-icons-extended',
+      '[class*="material-icons-extended"]',
+      '.DPvwYc',
+      `[${GOOGLE_LOGO_ATTRIBUTE}]`,
+      `[${GOOGLE_LOGO_ATTRIBUTE}] *`
     ]);
   }
 
@@ -234,7 +270,10 @@ const SINGLE_WORD_ICON_NAMES = new Set([
   'draft', 'terminal', 'code', 'laptop', 'desktop', 'headset', 'speaker',
   'volume', 'link', 'launch', 'login', 'logout', 'power', 'thumb', 'broadcast',
   'subtitles', 'caption', 'captions', 'shapes', 'category', 'record', 'recording',
-  'pan', 'tool', 'present'
+  'pan', 'tool', 'present',
+  'devices', 'device', 'tablet', 'apps', 'reviews', 'payment', 'redeem',
+  'badge', 'verified', 'expand', 'collapse', 'navigate', 'chevron', 'arrow',
+  'install', 'update', 'public'
 ]);
 
 function normalizeLigatureText(text) {
@@ -244,16 +283,88 @@ function normalizeLigatureText(text) {
     .toLowerCase();
 }
 
-function isLikelyLigatureIconText(text) {
+function isIconContext(element) {
+  if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+
+  const tagName = (element.tagName || '').toLowerCase();
+  if (tagName === 'i' || tagName === 'mat-icon' || tagName === 'md-icon' || tagName === 'g-icon') {
+    return true;
+  }
+
+  const className = String(element.className || '').toLowerCase();
+  if (
+    className.includes('icon') ||
+    className.includes('symbol') ||
+    className.includes('material') ||
+    className.includes('glyph') ||
+    className.includes('notranslate') ||
+    className.includes('dpvwyc')
+  ) {
+    return true;
+  }
+
+  const inlineStyle = String((typeof element.getAttribute === 'function' && element.getAttribute('style')) || (element.style && element.style.fontFamily) || '').toLowerCase();
+  if (
+    inlineStyle.includes('icon') ||
+    inlineStyle.includes('symbol') ||
+    inlineStyle.includes('material')
+  ) {
+    return true;
+  }
+
+  if (typeof element.hasAttribute === 'function') {
+    if (element.hasAttribute('aria-hidden') && element.getAttribute('aria-hidden') === 'true') {
+      return true;
+    }
+    if (element.hasAttribute('data-icon') || element.hasAttribute('data-icon-name') || element.hasAttribute('data-symbol')) {
+      return true;
+    }
+    if (element.hasAttribute('translate') && element.getAttribute('translate') === 'no') {
+      return true;
+    }
+  }
+
+  if (element.parentElement && element.parentElement.nodeType === Node.ELEMENT_NODE) {
+    const parent = element.parentElement;
+    const parentClass = String(parent.className || '').toLowerCase();
+    const parentStyle = String((typeof parent.getAttribute === 'function' && parent.getAttribute('style')) || (parent.style && parent.style.fontFamily) || '').toLowerCase();
+    if (
+      parentClass.includes('icon') ||
+      parentClass.includes('symbol') ||
+      parentClass.includes('material') ||
+      parentClass.includes('dpvwyc') ||
+      parentStyle.includes('icon') ||
+      parentStyle.includes('symbol') ||
+      parentStyle.includes('material')
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isLikelyLigatureIconText(text, element) {
   const normalized = normalizeLigatureText(text);
   if (!normalized) return false;
   if (normalized.length > 40) return false;
   
-  if (/^[a-z0-9_]+$/.test(normalized) && normalized.includes('_')) {
+  if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(normalized)) {
     return true;
   }
   
-  return SINGLE_WORD_ICON_NAMES.has(normalized);
+  if (SINGLE_WORD_ICON_NAMES.has(normalized)) {
+    if (element) {
+      return isIconContext(element);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function isLeafElement(element) {
+  return Boolean(element && element.nodeType === Node.ELEMENT_NODE && (!element.childElementCount || element.childElementCount === 0));
 }
 
 function isLigatureIconElement(element) {
@@ -268,7 +379,7 @@ function isLigatureIconElement(element) {
     return false;
   }
 
-  return isLikelyLigatureIconText(textContent);
+  return isLikelyLigatureIconText(textContent, element);
 }
 
 function markExcludedElement(element) {
@@ -293,13 +404,62 @@ function markLigatureIconElement(element) {
   }
 }
 
+function markGoogleLogoElement(element) {
+  if (!element || typeof element.setAttribute !== 'function') return;
+  element.setAttribute(EXCLUDE_ATTRIBUTE, '1');
+  element.setAttribute(GOOGLE_LOGO_ATTRIBUTE, '1');
+  if (typeof element.closest === 'function') {
+    const anchor = element.closest('a');
+    if (anchor && anchor !== element && typeof anchor.setAttribute === 'function') {
+      const anchorText = normalizeLigatureText(anchor.textContent);
+      const elementText = normalizeLigatureText(element.textContent);
+      const isLogoAnchor = anchorText === elementText || /^(google_logo\s*play|play\s*google_logo|google_logo)$/i.test(anchorText);
+      if (isLogoAnchor) {
+        anchor.setAttribute(EXCLUDE_ATTRIBUTE, '1');
+        anchor.setAttribute(GOOGLE_LOGO_ATTRIBUTE, '1');
+      }
+    }
+  }
+}
+
+function unmarkGoogleLogoElement(element) {
+  if (!element || typeof element.removeAttribute !== 'function') return;
+  element.removeAttribute(GOOGLE_LOGO_ATTRIBUTE);
+  if (typeof element.querySelector !== 'function' || !element.querySelector(`[${EXCLUDE_ATTRIBUTE}]`)) {
+    element.removeAttribute(EXCLUDE_ATTRIBUTE);
+  }
+  if (typeof element.closest === 'function') {
+    const anchor = element.closest('a');
+    if (anchor && anchor !== element && typeof anchor.removeAttribute === 'function') {
+      const hasOtherLogo = typeof anchor.querySelector === 'function' && Boolean(anchor.querySelector(`[${GOOGLE_LOGO_ATTRIBUTE}]`));
+      if (!hasOtherLogo) {
+        anchor.removeAttribute(GOOGLE_LOGO_ATTRIBUTE);
+        const hasOtherExclude = typeof anchor.querySelector === 'function' && Boolean(anchor.querySelector(`[${EXCLUDE_ATTRIBUTE}]`));
+        if (!hasOtherExclude) {
+          anchor.removeAttribute(EXCLUDE_ATTRIBUTE);
+        }
+      }
+    }
+  }
+}
+
 function updateLigatureIconTextNode(textNode) {
   if (!textNode) return;
 
   const parent = textNode.parentElement || textNode.parentNode;
   if (!parent || parent.nodeType !== Node.ELEMENT_NODE) return;
 
-  if (isLikelyLigatureIconText(textNode.textContent)) {
+  const text = textNode.textContent || '';
+  if (isGooglePlaySite() && normalizeLigatureText(text).includes('google_logo')) {
+    if (isLeafElement(parent)) {
+      markGoogleLogoElement(parent);
+      return;
+    }
+  } else if (parent.hasAttribute && parent.hasAttribute(GOOGLE_LOGO_ATTRIBUTE)) {
+    unmarkGoogleLogoElement(parent);
+  }
+
+  if (isLikelyLigatureIconText(text, parent)) {
     markLigatureIconElement(parent);
   } else if (parent.hasAttribute(LIGATURE_ICON_ATTRIBUTE)) {
     parent.removeAttribute(LIGATURE_ICON_ATTRIBUTE);
@@ -320,6 +480,16 @@ function updateLigatureIconTextNode(textNode) {
 function updateLigatureIconMarker(element) {
   if (!element || typeof element.setAttribute !== 'function' || typeof element.removeAttribute !== 'function') {
     return;
+  }
+
+  if (isLeafElement(element)) {
+    const text = element.textContent || '';
+    if (isGooglePlaySite() && normalizeLigatureText(text).includes('google_logo')) {
+      markGoogleLogoElement(element);
+      return;
+    } else if (element.hasAttribute(GOOGLE_LOGO_ATTRIBUTE)) {
+      unmarkGoogleLogoElement(element);
+    }
   }
 
   if (isLigatureIconElement(element)) {
@@ -356,6 +526,13 @@ function scanForLigatureIcons(rootNode) {
   }
 }
 
+function getLigatureIconFontStack() {
+  if (isGooglePlaySite()) {
+    return "'Google Material Icons', 'Material Icons Extended', 'Material Icons', 'Google Symbols', 'Material Symbols Outlined'";
+  }
+  return "'Google Symbols', 'Material Symbols Outlined', 'Google Material Icons', 'Material Icons'";
+}
+
 // 建立更有效率的 CSS
 function buildCss(isShadowRoot) {
   const targetSuffix = buildFontTargetSuffix();
@@ -389,13 +566,36 @@ function buildCss(isShadowRoot) {
     ${inputSelectors.join(',\n    ')} {
       font-family: ${getFontStack()} !important;
     }
-    [${LIGATURE_ICON_ATTRIBUTE}],
-    .google-symbols,
-    [class*="google-symbols"],
     [class*="google-material"],
-    [class*="material-symbols"],
-    [class*="material-icons"] {
+    [class*="material-icons-extended"],
+    .material-icons-extended,
+    .DPvwYc {
+      font-family: 'Google Material Icons', 'Material Icons Extended', 'Material Icons', 'Google Symbols', 'Material Symbols Outlined' !important;
+      text-transform: none !important;
+    }
+    .material-icons,
+    [class*="material-icons"]:not([class*="google-material"]):not([class*="material-icons-extended"]) {
+      font-family: 'Material Icons', 'Google Material Icons', 'Material Icons Extended', 'Google Symbols', 'Material Symbols Outlined' !important;
+      text-transform: none !important;
+    }
+    .google-symbols,
+    [class*="google-symbols"] {
       font-family: 'Google Symbols', 'Material Symbols Outlined', 'Google Material Icons', 'Material Icons' !important;
+      text-transform: none !important;
+    }
+    .material-symbols,
+    [class*="material-symbols"] {
+      font-family: 'Material Symbols Outlined', 'Material Symbols Rounded', 'Material Symbols Sharp', 'Google Symbols', 'Google Material Icons', 'Material Icons' !important;
+      text-transform: none !important;
+    }
+    [${LIGATURE_ICON_ATTRIBUTE}] {
+      font-family: ${getLigatureIconFontStack()} !important;
+      text-transform: none !important;
+    }
+    [${GOOGLE_LOGO_ATTRIBUTE}],
+    [${GOOGLE_LOGO_ATTRIBUTE}] * {
+      font-family: 'Google Sans', 'Product Sans', Roboto, Arial, sans-serif !important;
+      text-transform: none !important;
     }
   `;
 }
@@ -567,6 +767,7 @@ function registerShadowRoot(root) {
   // 監聽 ShadowRoot 內部的變動
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
+      handleRemovedNodes(mutation);
       for (const node of mutation.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
           scanForLigatureIcons(node);
@@ -625,6 +826,25 @@ function updateFontApplication() {
   }
 }
 
+function handleRemovedNodes(mutation) {
+  if (!mutation || !mutation.removedNodes || mutation.removedNodes.length === 0) return;
+  const target = mutation.target;
+  if (!target || target.nodeType !== Node.ELEMENT_NODE) return;
+
+  const candidate = (target.hasAttribute && target.hasAttribute(GOOGLE_LOGO_ATTRIBUTE))
+    ? target
+    : (typeof target.closest === 'function' ? target.closest(`[${GOOGLE_LOGO_ATTRIBUTE}]`) : null);
+
+  if (candidate) {
+    const hasRemainingLogo = typeof candidate.querySelector === 'function' &&
+      Boolean(candidate.querySelector(`[${GOOGLE_LOGO_ATTRIBUTE}]`));
+    const text = candidate.textContent || '';
+    if (!hasRemainingLogo && !normalizeLigatureText(text).includes('google_logo')) {
+      unmarkGoogleLogoElement(candidate);
+    }
+  }
+}
+
 // 監聽 DOM 變動 (Debounced)
 let scanTimeout;
 const documentObserver = new MutationObserver((mutations) => {
@@ -636,6 +856,7 @@ const documentObserver = new MutationObserver((mutations) => {
         updateLigatureIconTextNode(mutation.target);
         continue;
       }
+      handleRemovedNodes(mutation);
       for (const node of mutation.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
           scanForLigatureIcons(node);
@@ -795,6 +1016,7 @@ function registerDocumentPictureInPicture(pipWindow) {
           updateLigatureIconTextNode(mutation.target);
           continue;
         }
+        handleRemovedNodes(mutation);
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
             scanForLigatureIcons(node);

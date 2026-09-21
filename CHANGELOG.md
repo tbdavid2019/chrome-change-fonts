@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.1 - 2026-09-21
+
+- Fixed Google Play Store (`play.google.com`) icons (`devices`, `family_home`, `expand_more`, `arrow_forward`, `search`, `help_outline`, `play_apps`, etc.) turning into plain or uppercase text strings.
+- Fixed `google_logo Play` branding text in Google Play Store navbar header: detected `google_logo` ligature text, excluded it from custom font override, and preserved Google Sans / Product Sans font stack.
+- Differentiated icon font stacks by family: prioritized `Google Material Icons` and `Material Icons Extended` on Google Play Store and for `[class*="google-material"]` selectors, preventing subsetted `Google Symbols` font from shadowing material icon glyphs.
+- Enforced `text-transform: none !important` on icon elements and ligature attributes so parent button uppercase transforms (`.VfPpkd-LgbsSe`, `.VfPpkd-AznF2e`) do not break case-sensitive OpenType ligatures.
+- Expanded `SINGLE_WORD_ICON_NAMES` to include `devices`, `device`, `tablet`, `apps`, `reviews`, `payment`, `redeem`, `badge`, `verified`, `expand`, `collapse`, `navigate`, `chevron`, `arrow`, `install`, `update`, `public`.
+
 ## 1.8.0 - 2026-09-18
 
 - Fixed Google Meet control icons (`mic`, `videocam`, `center_focus_weak`, `more_vert`, `call_end`, `chat`, `domain_disabled`, etc.) turning into plain text strings.

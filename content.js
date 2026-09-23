@@ -344,12 +344,33 @@ function isIconContext(element) {
   return false;
 }
 
+function isCodeContext(element) {
+  let current = element;
+  while (current && current.nodeType === Node.ELEMENT_NODE) {
+    const tagName = (current.tagName || '').toLowerCase();
+    if (tagName === 'code' || tagName === 'pre') {
+      return true;
+    }
+
+    const className = String(current.className || '').toLowerCase();
+    if (/(?:^|\s)(?:blob-code(?:-inner)?|code-block|code-line|hljs|cm-content|cm-line|monaco-editor|prism-code)(?:\s|$)/.test(className)) {
+      return true;
+    }
+
+    current = current.parentElement;
+  }
+  return false;
+}
+
 function isLikelyLigatureIconText(text, element) {
   const normalized = normalizeLigatureText(text);
   if (!normalized) return false;
   if (normalized.length > 40) return false;
   
   if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(normalized)) {
+    if (element && isCodeContext(element) && !isIconContext(element)) {
+      return false;
+    }
     return true;
   }
   

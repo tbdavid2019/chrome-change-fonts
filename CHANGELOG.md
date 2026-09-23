@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.2 - 2026-09-23
+
+- Preserved broad underscore-based ligature icon detection while keeping code identifiers in code blocks eligible for custom font replacement.
+
 ## 1.8.1 - 2026-09-21
 
 - Fixed Google Play Store (`play.google.com`) icons (`devices`, `family_home`, `expand_more`, `arrow_forward`, `search`, `help_outline`, `play_apps`, etc.) turning into plain or uppercase text strings.

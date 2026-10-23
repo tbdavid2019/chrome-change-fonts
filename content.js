@@ -378,7 +378,10 @@ var SINGLE_WORD_ICON_NAMES = new Set([
   'calculator', 'north', 'south', 'east', 'west'
 ]);
 
-var PUA_REGEX = /[\uE000-\uF8FF\uDB80-\uDBFF\uDC00-\uDFFF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u;
+// In Unicode mode, adjacent surrogate escapes combine into one code point.
+// Putting surrogate ranges here accidentally creates a range spanning ordinary
+// CJK text and punctuation. Only match the three actual private-use blocks.
+var PUA_REGEX = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u;
 
 function normalizeLigatureText(text) {
   return String(text || '')
@@ -647,7 +650,10 @@ function updateLigatureIconTextNode(textNode) {
     unmarkGoogleLogoElement(parent);
   }
 
-  if (isLikelyLigatureIconText(text, parent)) {
+  // A short text node (e.g. a BBS separator or icon) can belong to an entire
+  // article. Never exclude that container and all of its descendants.
+  const parentText = typeof parent.textContent === 'string' ? parent.textContent : text;
+  if (isLeafElement(parent) && isLikelyLigatureIconText(parentText, parent)) {
     markLigatureIconElement(parent);
   } else if (parent.hasAttribute(LIGATURE_ICON_ATTRIBUTE)) {
     parent.removeAttribute(LIGATURE_ICON_ATTRIBUTE);

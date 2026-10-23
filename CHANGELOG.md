@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.8 - 2026-10-24
+
+- Fixed mixed fonts on Disp BBS and similar pages: adjacent surrogate escapes in the Unicode PUA regex formed an unintended range that matched `--`, fullwidth slashes, supplementary Han, emoji, and other ordinary text. Match only the three actual private-use blocks.
+- Prevented a short direct text node from excluding an entire article container and its descendants. Leaf elements are checked using their complete text, preserving real ligature and PUA icons.
+- Added exhaustive Unicode classification checks and a Chrome DevTools regression test that checks actual platform fonts for BBS text, colored spans, preformatted text, CJK punctuation, bold/italic text, and dynamic additions. All new regressions fail against 1.8.7.
+
 ## 1.8.7 - 2026-10-23
 
 - Fixed bold text losing its weight with restricted local fonts: use `font-weight: auto` instead of declaring every selected face supports weights 100–900. Updated both page rendering and popup preview.

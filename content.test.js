@@ -1271,3 +1271,54 @@ test('popup and page generate identical restricted font faces and fallback order
     assert.equal(normalize(popup.getAdvancedPreviewFontStack(config)), normalize(content.getFontStack()));
   }
 });
+
+test('PUA detection matches exactly the Unicode private-use blocks', () => {
+  const sandbox = loadContentScript();
+  // Check every code point, including CJK extensions, fullwidth punctuation,
+  // emoji, lone surrogates, and the noncharacters beside the PUA boundaries.
+  for (let point = 0; point <= 0x10FFFF; point++) {
+    const expected = (point >= 0xE000 && point <= 0xF8FF) ||
+      (point >= 0xF0000 && point <= 0xFFFFD) ||
+      (point >= 0x100000 && point <= 0x10FFFD);
+    assert.equal(sandbox.PUA_REGEX.test(String.fromCodePoint(point)), expected,
+      `U+${point.toString(16).toUpperCase()}`);
+  }
+});
+
+test('BBS separators, fullwidth punctuation and supplementary Han are ordinary text', () => {
+  const sandbox = loadContentScript();
+  for (const text of ['--', '／', '編譯陳成良／綜合報導', '（23）', '𠀀', '😀',
+    '中時新聞網黃朝郁', '颱風假害隔宿露營被取消！', 'https://www.chinatimes.com/']) {
+    assert.equal(sandbox.isLikelyLigatureIconText(text), false, text);
+  }
+});
+
+test('direct icon text never excludes a mixed article container', () => {
+  const sandbox = loadContentScript();
+  const attributes = new Map();
+  const article = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    childElementCount: 2,
+    textContent: '文章標題\uE8B6內文',
+    hasAttribute(name) { return attributes.has(name); },
+    setAttribute(name, value) { attributes.set(name, value); },
+  };
+  for (const textContent of ['--', '／', '\uE8B6', 'arrow_drop_down']) {
+    sandbox.updateLigatureIconTextNode({ parentElement: article, textContent });
+    assert.equal(attributes.size, 0, textContent);
+  }
+});
+
+test('a split text node does not turn a regular label into an icon', () => {
+  const sandbox = loadContentScript();
+  const attributes = new Map();
+  const span = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    childElementCount: 0,
+    textContent: 'arrow_drop_down is the icon name',
+    hasAttribute(name) { return attributes.has(name); },
+    setAttribute(name, value) { attributes.set(name, value); },
+  };
+  sandbox.updateLigatureIconTextNode({ parentElement: span, textContent: 'arrow_drop_down' });
+  assert.equal(attributes.size, 0);
+});

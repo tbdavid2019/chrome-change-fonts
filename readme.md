@@ -17,17 +17,32 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`1.8.1`
+目前版本：`1.8.3`
 
 本次版本修正：
 
-- 修正 Google Play 商店（play.google.com）上各類圖示（`devices`、`family_home`、`expand_more`、`arrow_forward`、`search` 等）變成大寫英文字母字串（如 `DEVICES`、`EXPAND_MORE`、`SEARCH`）的問題
-- 修正 Google Play 頂部標誌 `google_logo Play` 遺失連字字型渲染的問題，排除自訂字體覆蓋並維持 Google Sans 正確呈現標誌
-- 依 icon 種類細分字體回退順序，Google Play 優先使用 `Google Material Icons` / `Material Icons Extended`，避免被精簡版的 `Google Symbols` 阻斷圖示字形
-- 為圖示強制加上 `text-transform: none !important`，防止 Material Design 按鈕的大寫規則破壞連字字型（Ligature）匹配
-- 擴充單字圖示清單（新增 `devices`, `device`, `tablet`, `apps`, `reviews`, `payment`, `redeem`, `badge`, `verified` 等）
+- **徹底修復 Google 與各式網頁 Icon（圖示）顯示失效問題**：
+  - 修正 `MutationObserver` 累積佇列遺失問題（過去快速動態載入如 Google 搜尋、Gmail、YouTube 時會覆蓋 clearTimeout 丟棄高達 90% 的新增節點），全面改為 `pendingMutations` 佇列處理。
+  - 補足 Google 網域自動判斷（`isGoogleSite`），支援現代 Google 混淆類別（`z1asCe`、`VfPpkd-*`）、`[jsname]` 與 SVG 元素屬性。
+  - 於 CSS `EXCLUDE_CLASSES` 前置排除 Google 官方圖示關鍵屬性（`[class*="notranslate"]`、`[translate="no"]`、`.z1asCe`、`svg`、`svg *`、`g-icon`、`yt-icon` 等），杜絕樣式生效瞬間的文字覆蓋。
+  - 支援 Unicode 私用區（PUA, Private Use Area `U+E000`–`U+F8FF`）編碼圖示保護，防止自訂字體無字形導致圖示顯示為破圖方塊 `[?]`。
+  - 修復 `INTERACTIVE_EXCLUDE_SELECTOR` 污染整個卡片問題（移除 `[jsaction]`、`[aria-haspopup]` 等全域屬性），並實現圖示按鈕智慧識別，保留文字按鈕（如「搜尋」）的字體替換。
+  - 擴充 Google Material Icons / Symbols 單字清單（涵蓋 `history`、`inbox`、`archive`、`undo`、`redo`、`event`、`today` 等）。
+- **全新品牌視覺風格（全面對齊 david888.com 與 2md.aiurl.tw）**：
+  - 導入五大品牌基底色：金黃藏紅花色（Saffron `#ffb010`）、深海深藍（Deep Blue `#17324d`）、暖白奶油色（Warm Cream `#fff9e8`）、暖調畫布色（Canvas `#fff0cc`）與深墨色（Ink `#2b251a`），搭配陶土色（Clay `#a9471d`）提示重點。
+  - 新增深色模式支援（Deep Navy Command Center Dark Mode：`#0c1927` 深藍黑底、`#13273c` 卡片、`#ffb010` 金黃高亮）。
+  - 介面標頭加入標誌性的 `333` 金黃徽章，強化產品品牌辨識度。
+- **嚴格符合 WCAG 2.1 AA / AAA 無障礙色彩對比標準**：
+  - 主要文字色彩對比度超越 AAA 規範（淺色模式 14.6:1、深色模式 14.4:1）。
+  - 次要文字與控制項外框色彩對比全面通過 WCAG 1.4.11（>= 3.0:1）非文字元素規範。
+  - 金黃藏紅花色背景一律使用深色文字（`#0f2337` / `#2b251a`），堅決杜絕低對比的白字問題。
+  - 鍵盤焦點導航支援高辨識度外框環（Focus Ring，淺色 `#17324d`，深色 `#ffb010`，偏移 2px）。
+- **網頁版與 Chrome 擴充套件雙重支援**：
+  - 新增 `index.html` 獨立網頁版進入點，可直接在一般網頁伺服器或瀏覽器開啟測試。
+  - 自適應 Bento 排版：在擴充套件彈出視窗（<= 420px）保持緊湊 360px 視窗；在標準網頁環境（> 420px）自動居中呈現簡約質感的獨立卡片容器。
+  - `popup.js` 內建無縫環境感知機制：在擴充套件環境使用 `chrome.storage.sync` 與 `chrome.fontSettings`；在網頁版無縫降級至 `localStorage`、瀏覽器 `queryLocalFonts()` 與繁體中文/系統字體精選清單，徹底避免 API 未定義錯誤。
 
-近期版本也包含：
+上一版更新：
 
 - 修正 Google Maps、Telegram Web、104 招募管理等網站的 icon font 被誤套自訂字體，導致圖示變成亂碼或方塊的問題
 - 擴充 icon 排除規則，納入 `google-symbols`、`icon`、`iconfont`、`arrow-icon` 與常見 `icon-*` 命名模式

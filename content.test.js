@@ -917,5 +917,223 @@ test('handleRemovedNodes clears logo markers on marked ancestor when child wrapp
   assert.equal(anchorAttributes.has('data-font-changer-exclude'), false);
 });
 
+test('isGoogleSite accurately detects Google and YouTube domains', () => {
+  const sandbox = loadContentScript();
+  assert.equal(sandbox.isGoogleSite(), false);
+
+  sandbox.location.hostname = 'google.com';
+  assert.equal(sandbox.isGoogleSite(), true);
+
+  sandbox.location.hostname = 'www.google.com';
+  assert.equal(sandbox.isGoogleSite(), true);
+
+  sandbox.location.hostname = 'google.com.tw';
+  assert.equal(sandbox.isGoogleSite(), true);
+
+  sandbox.location.hostname = 'mail.google.com';
+  assert.equal(sandbox.isGoogleSite(), true);
+
+  sandbox.location.hostname = 'youtube.com';
+  assert.equal(sandbox.isGoogleSite(), true);
+
+  sandbox.location.hostname = 'www.youtube.com';
+  assert.equal(sandbox.isGoogleSite(), true);
+
+  sandbox.location.hostname = 'example.com';
+  assert.equal(sandbox.isGoogleSite(), false);
+});
+
+test('buildCss excludes Google Search z1asCe, notranslate, translate="no", and SVG elements', () => {
+  const sandbox = loadContentScript();
+  sandbox.applyFont('Test Sans');
+
+  const css = sandbox.buildCss(false);
+
+  assert.match(css, /\.z1asCe/);
+  assert.match(css, /\[class\*="z1asCe"\]/);
+  assert.match(css, /\[class\*="notranslate"\]/);
+  assert.match(css, /\[translate="no"\]/);
+  assert.match(css, /:not\(svg\)/);
+  assert.match(css, /:not\(svg \*\)/);
+  assert.match(css, /:not\(g-icon\)/);
+  assert.match(css, /:not\(yt-icon\)/);
+});
+
+test('detects single-word Google Workspace icons', () => {
+  const sandbox = loadContentScript();
+
+  assert.equal(sandbox.isLikelyLigatureIconText('history'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('inbox'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('archive'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('undo'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('redo'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('event'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('today'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('dashboard'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('description'), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('palette'), true);
+});
+
+test('detects Unicode Private Use Area (PUA) icon characters', () => {
+  const sandbox = loadContentScript();
+
+  // Material Icons & FontAwesome PUA codepoints (U+E000 to U+F8FF)
+  assert.equal(sandbox.isLikelyLigatureIconText('\uE8B6'), true); // search in Material Icons
+  assert.equal(sandbox.isLikelyLigatureIconText('\uF007'), true); // user in FontAwesome
+  assert.equal(sandbox.isLikelyLigatureIconText('\uE88A'), true); // home
+});
+
+test('isIconContext recognizes obfuscated Google icon classes and SVG elements', () => {
+  const sandbox = loadContentScript();
+
+  // SVG AnimatedString class name support
+  const svgEl = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'svg',
+    className: { baseVal: 'gb_d' },
+  };
+  assert.equal(sandbox.isIconContext(svgEl), true);
+
+  // Google Search icon class z1asCe
+  const z1asCeEl = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'SPAN',
+    className: 'z1asCe MZy1Rb',
+  };
+  assert.equal(sandbox.isIconContext(z1asCeEl), true);
+
+  // Google Material 3 VfPpkd class
+  const m3El = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'SPAN',
+    className: 'VfPpkd-k8QpJ',
+  };
+  assert.equal(sandbox.isIconContext(m3El), true);
+
+  // Element with jsname on Google
+  sandbox.location.hostname = 'google.com';
+  const jsnameEl = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'SPAN',
+    className: '',
+    hasAttribute(attr) { return attr === 'jsname'; },
+    getAttribute(attr) { return attr === 'jsname' ? 'V67aGc' : null; }
+  };
+  assert.equal(sandbox.isIconContext(jsnameEl), true);
+});
+
+test('shouldExcludeInteractiveAncestor preserves button font when button contains text label', () => {
+  const sandbox = loadContentScript();
+
+  // Button with text label "搜尋" and icon "search"
+  const buttonWithText = {
+    textContent: 'search 搜尋',
+  };
+  const iconSpan = {
+    textContent: 'search',
+  };
+  assert.equal(sandbox.shouldExcludeInteractiveAncestor(buttonWithText, iconSpan), false);
+
+  // Button with only icon
+  const iconOnlyButton = {
+    textContent: 'search',
+  };
+  assert.equal(sandbox.shouldExcludeInteractiveAncestor(iconOnlyButton, iconSpan), true);
+
+  // Mock button without textContent
+  const mockButton = {};
+  assert.equal(sandbox.shouldExcludeInteractiveAncestor(mockButton, iconSpan), true);
+});
+
+test('scanStylesheets detects icon font classes inside nested @media rules', () => {
+  const sandbox = loadContentScript();
+
+  sandbox.document.styleSheets = [
+    {
+      cssRules: [
+        {
+          type: 4, // CSSMediaRule (@media)
+          cssRules: [
+            {
+              type: 5, // FONT_FACE_RULE
+              style: {
+                getPropertyValue(prop) {
+                  return prop === 'font-family' ? 'CustomOcticons' : '';
+                }
+              }
+            },
+            {
+              type: 1, // STYLE_RULE
+              selectorText: '.octicon-repo',
+              style: {
+                fontFamily: 'CustomOcticons'
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ];
+
+  sandbox.scanStylesheets(sandbox.document);
+
+  const css = sandbox.buildCss(false);
+  assert.match(css, /\.octicon-repo/);
+});
+
+test('standard UI text labels on Google sites retain font replacement and are not mistaken for icons', () => {
+  const sandbox = loadContentScript();
+  sandbox.location.hostname = 'mail.google.com';
+
+  // Standard navigation item label "Inbox" or "History" on Google without icon attributes
+  const navLabelEl = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'SPAN',
+    className: 'nav-item-title',
+    childElementCount: 0,
+    childNodes: [{ nodeType: sandbox.Node.TEXT_NODE, textContent: 'Inbox' }],
+    hasAttribute() { return false; },
+    getAttribute() { return null; }
+  };
+
+  assert.equal(sandbox.isIconContext(navLabelEl), false);
+  assert.equal(sandbox.isLikelyLigatureIconText('Inbox', navLabelEl), false);
+
+  // But an actual icon element with notranslate or aria-hidden or VfPpkd DOES get recognized
+  const iconEl = {
+    nodeType: sandbox.Node.ELEMENT_NODE,
+    tagName: 'SPAN',
+    className: 'notranslate',
+    childElementCount: 0,
+    childNodes: [{ nodeType: sandbox.Node.TEXT_NODE, textContent: 'inbox' }],
+    hasAttribute(attr) { return attr === 'aria-hidden'; },
+    getAttribute(attr) { return attr === 'aria-hidden' ? 'true' : null; }
+  };
+
+  assert.equal(sandbox.isIconContext(iconEl), true);
+  assert.equal(sandbox.isLikelyLigatureIconText('inbox', iconEl), true);
+});
+
+test('isGoogleSite strictly enforces domain boundaries against spoofed domains', () => {
+  const sandbox = loadContentScript();
+
+  sandbox.location.hostname = 'google.com.example.com';
+  assert.equal(sandbox.isGoogleSite(), false);
+
+  sandbox.location.hostname = 'evilgoogle.com';
+  assert.equal(sandbox.isGoogleSite(), false);
+
+  sandbox.location.hostname = 'youtube.com.attacker.com';
+  assert.equal(sandbox.isGoogleSite(), false);
+
+  sandbox.location.hostname = 'mail.google.com';
+  assert.equal(sandbox.isGoogleSite(), true);
+
+  sandbox.location.hostname = 'google.co.jp';
+  assert.equal(sandbox.isGoogleSite(), true);
+});
+
+
+
 
 

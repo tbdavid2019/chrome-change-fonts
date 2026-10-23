@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Website Font Changer 333</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: 'JetBrains Mono', 'Gen Jyuu Gothic', 'Noto Sans TC', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+      /* david888.com & 2md.aiurl.tw five base colors */
+      --saffron: #ffb010;
+      --saffron-hover: #f2a600;
+      --saffron-light: #fff0cc;
+      --deep-blue: #17324d;
+      --deep-blue-dark: #0f2337;
+      --clay: #a9471d;
+      --clay-dark: #8f3511;
+      --warm-cream: #fff9e8;
+      --canvas: #fff0cc;
+      --ink: #2b251a;
+
+      /* Light Theme (Warm Cream & Bento Canvas) */
+      --bg-page: var(--canvas);
+      --bg-gradient: radial-gradient(circle at 10% 10%, rgba(255, 176, 16, 0.22), transparent 45%),
+                     radial-gradient(circle at 90% 90%, rgba(23, 50, 77, 0.12), transparent 45%),
+                     var(--canvas);
+      --card-bg: var(--warm-cream);
+      --card-elevated: #fffefa;
+      --card-muted: #fcf4e0;
+
+      --border-subtle: #e2cca0;
+      --border-default: #d6bc7c;
+      --border-strong: #a48645;
+      --border-focus: var(--deep-blue);
+
+      --text-main: var(--ink);
+      --text-muted: #594e36;
+      --text-heading: var(--deep-blue-dark);
+
+      --tab-track: #ecd9b0;
+      --tab-active-bg: #fffefa;
+      --tab-active-text: var(--deep-blue);
+      --tab-active-border: #bfa25d;
+
+      --badge-bg: #ffe499;
+      --badge-text: var(--deep-blue-dark);
+      --badge-border: #d6bc7c;
+
+      --btn-lang-bg: #fffefa;
+      --btn-lang-text: var(--deep-blue);
+      --btn-lang-border: var(--deep-blue);
+      --btn-lang-hover-bg: var(--saffron);
+      --btn-lang-hover-text: var(--deep-blue-dark);
+
+      --btn-reset-bg: var(--card-muted);
+      --btn-reset-text: var(--clay-dark);
+      --btn-reset-border: #c9ab69;
+      --btn-reset-hover-bg: #fae4ca;
+
+      --input-bg: #fffefa;
+      --input-border: #947530;
+      --input-text: var(--ink);
+      --input-disabled-bg: #efe8d5;
+      --input-disabled-text: #82755b;
+
+      --preview-bg: #fffefa;
+      --preview-border: #947530;
+
+      --status-default: #594e36;
+      --status-active: #1b5329;
+      --status-excluded: #8f3511;
+
+      --shadow-sm: 0 1px 3px rgba(43, 37, 26, 0.08);
+      --shadow-md: 0 4px 12px rgba(23, 50, 77, 0.08);
+      --shadow-lg: 0 12px 30px rgba(23, 50, 77, 0.14);
+
+      --focus-ring: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--border-focus);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        /* Dark Theme (Deep Navy Command Center) */
+        --bg-page: #0c1927;
+        --bg-gradient: radial-gradient(circle at 10% 10%, rgba(255, 176, 16, 0.12), transparent 45%),
+                       radial-gradient(circle at 90% 90%, rgba(124, 194, 255, 0.08), transparent 45%),
+                       #0c1927;
+        --card-bg: #13273c;
+        --card-elevated: #1b3450;
+        --card-muted: #172e47;
+
+        --border-subtle: #24415f;
+        --border-default: #2b4a6b;
+        --border-strong: #3e6a98;
+        --border-focus: var(--saffron);
+
+        --text-main: #fff9e8;
+        --text-muted: #cbd5e1;
+        --text-heading: var(--saffron);
+
+        --tab-track: #0f2235;
+        --tab-active-bg: #1b3450;
+        --tab-active-text: var(--saffron);
+        --tab-active-border: var(--saffron);
+
+        --badge-bg: #1b3450;
+        --badge-text: var(--saffron);
+        --badge-border: #3e6a98;
+
+        --btn-lang-bg: #1b3450;
+        --btn-lang-text: var(--saffron);
+        --btn-lang-border: var(--saffron);
+        --btn-lang-hover-bg: rgba(255, 176, 16, 0.2);
+        --btn-lang-hover-text: var(--saffron);
+
+        --btn-reset-bg: #1b3450;
+        --btn-reset-text: #f08354;
+        --btn-reset-border: #3e6a98;
+        --btn-reset-hover-bg: rgba(240, 131, 84, 0.2);
+
+        --input-bg: #1b3450;
+        --input-border: #548bc4;
+        --input-text: #fff9e8;
+        --input-disabled-bg: #152637;
+        --input-disabled-text: #718096;
+
+        --preview-bg: #102133;
+        --preview-border: #548bc4;
+
+        --status-default: #cbd5e1;
+        --status-active: #6ee7b7;
+        --status-excluded: #f87171;
+
+        --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
+        --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+
+        --focus-ring: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--border-focus);
+      }
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      color: var(--text-main);
+      background: var(--bg-page);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Extension context: 360px layout. Web context (>480px): centered bento card */
+    .app-shell {
+      width: 360px;
+      max-width: 100%;
+      background: var(--card-bg);
+      padding: 14px 14px 16px;
+      margin: 0 auto;
+    }
+
+    @media (min-width: 480px) {
+      body {
+        min-height: 100vh;
+        padding: 32px 16px 48px;
+        background: var(--bg-gradient);
+      }
+      .app-shell {
+        width: 100%;
+        max-width: 460px;
+        border-radius: 18px;
+        border: 1px solid var(--border-default);
+        box-shadow: var(--shadow-lg);
+        padding: 22px 22px 24px;
+      }
+    }
+
+    .header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--saffron);
+      color: var(--deep-blue-dark);
+      font-size: 11.5px;
+      font-weight: 800;
+      padding: 3px 6px;
+      border-radius: 6px;
+      border: 1.5px solid var(--deep-blue-dark);
+      line-height: 1;
+      letter-spacing: 0.05em;
+      flex-shrink: 0;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .brand-badge {
+        background: var(--saffron);
+        color: #0c1927;
+        border-color: var(--saffron);
+      }
+    }
+
+    .header-bar h1 {
+      margin: 0;
+      font-size: 17.5px;
+      font-weight: 700;
+      line-height: 1.25;
+      color: var(--text-heading);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .lang-toggle {
+      flex-shrink: 0;
+      border: 1.5px solid var(--btn-lang-border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.2;
+      cursor: pointer;
+      background: var(--btn-lang-bg);
+      color: var(--btn-lang-text);
+      transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+      min-height: 28px;
+      min-width: 44px;
+    }
+
+    .lang-toggle:hover {
+      background: var(--btn-lang-hover-bg);
+      color: var(--btn-lang-hover-text);
+    }
+
+    .lang-toggle:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+
+    .lang-toggle:active {
+      transform: scale(0.96);
+    }
+
+    main {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Mode switcher tabs */
+    .mode-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 3px;
+      border: 1px solid var(--border-default);
+      border-radius: 10px;
+      background: var(--tab-track);
+    }
+
+    .mode-tab {
+      flex: 1;
+      border-radius: 7px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-muted);
+      font-weight: 700;
+      font-size: 13px;
+      padding: 7px 8px;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      min-height: 34px;
+    }
+
+    .mode-tab:hover:not([aria-selected="true"]) {
+      color: var(--text-main);
+      background: rgba(255, 176, 16, 0.15);
+    }
+
+    .mode-tab[aria-selected="true"] {
+      background: var(--tab-active-bg);
+      color: var(--tab-active-text);
+      border-color: var(--tab-active-border);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .mode-tab:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+
+    .settings-panel {
+      margin: 0;
+    }
+
+    .settings-panel[hidden] {
+      display: none;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 600;
+      display: block;
+      margin-bottom: 5px;
+      color: var(--text-main);
+    }
+
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1.5px solid var(--input-border);
+      margin-bottom: 8px;
+      font-size: 13.5px;
+      background: var(--input-bg);
+      color: var(--input-text);
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      min-height: 38px;
+    }
+
+    select:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+      border-color: var(--border-focus);
+    }
+
+    select:disabled {
+      background: var(--input-disabled-bg);
+      color: var(--input-disabled-text);
+      cursor: not-allowed;
+      border-color: var(--border-subtle);
+    }
+
+    .mode-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: -2px 0 2px;
+      line-height: 1.4;
+    }
+
+    .advanced-panel {
+      background: var(--card-muted);
+      border-radius: 10px;
+      border: 1px solid var(--border-default);
+      box-shadow: var(--shadow-sm);
+      padding: 10px;
+    }
+
+    .advanced-panel-description,
+    .advanced-help {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--text-muted);
+    }
+
+    .advanced-panel-description {
+      margin-bottom: 8px;
+    }
+
+    .advanced-help {
+      margin-top: 2px;
+    }
+
+    /* Checkbox toggle rows */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 30px;
+    }
+
+    .toggle-row label {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-main);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle-row input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      margin: 0;
+      accent-color: var(--border-focus);
+      cursor: pointer;
+    }
+
+    .toggle-row input[type="checkbox"]:focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: 2px;
+    }
+
+    .site-toggle-row {
+      align-items: center;
+      gap: 8px;
+    }
+
+    .site-badge {
+      max-width: 120px;
+      flex-shrink: 0;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--badge-bg);
+      color: var(--badge-text);
+      border: 1px solid var(--badge-border);
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.25;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .status-text {
+      font-size: 12.5px;
+      color: var(--status-default);
+      line-height: 1.45;
+      padding: 2px 0;
+    }
+
+    /* Live preview card */
+    .preview-card {
+      background: var(--card-elevated);
+      border-radius: 12px;
+      border: 1.5px solid var(--preview-border);
+      padding: 10px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-heading);
+    }
+
+    .preview-header button {
+      border: 1px solid var(--btn-reset-border);
+      border-radius: 7px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--btn-reset-bg);
+      color: var(--btn-reset-text);
+      transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+      min-height: 26px;
+    }
+
+    .preview-header button:hover {
+      background: var(--btn-reset-hover-bg);
+      border-color: var(--clay);
+    }
+
+    .preview-header button:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+
+    .preview-header button:active {
+      transform: scale(0.96);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      max-height: 220px;
+      resize: vertical;
+      border: 1.5px solid var(--input-border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 17px;
+      line-height: 1.55;
+      background: var(--card-elevated);
+      color: var(--input-text);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    textarea:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+      border-color: var(--border-focus);
+    }
+
+    body.advanced-mode textarea {
+      min-height: 98px;
+      max-height: 170px;
+      font-size: 16px;
+    }
+
+    @media (min-width: 480px) {
+      .header-bar h1 {
+        font-size: 18.5px;
+      }
+      .mode-tab {
+        font-size: 13.5px;
+      }
+      label {
+        font-size: 13.5px;
+      }
+      select {
+        font-size: 14px;
+      }
+      .toggle-row label {
+        font-size: 14px;
+      }
+      .status-text {
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="header-bar">
+      <div class="brand-group">
+        <span class="brand-badge" aria-hidden="true">333</span>
+        <h1 id="headingText">Website Font Changer 333</h1>
+      </div>
+      <button type="button" class="lang-toggle" id="languageToggle" aria-label="Switch interface language / 切換介面語言">EN/中</button>
+    </header>
+
+    <main>
+      <div class="mode-tabs" role="tablist" aria-label="Font mode">
+        <button type="button" class="mode-tab" id="basicModeTab" role="tab" aria-selected="true" aria-controls="basicSettingsPanel">Single font</button>
+        <button type="button" class="mode-tab" id="advancedModeTab" role="tab" aria-selected="false" aria-controls="advancedSettingsPanel">CJK / Latin split</button>
+      </div>
+
+      <section class="settings-panel" id="basicSettingsPanel" role="tabpanel" aria-labelledby="basicModeTab">
+        <label for="fontSelect" id="fontLabel">Font</label>
+        <select id="fontSelect"></select>
+        <p class="mode-hint" id="modeHintText">Single font mode is active.</p>
+      </section>
+
+      <section class="settings-panel advanced-panel" id="advancedSettingsPanel" role="tabpanel" aria-labelledby="advancedModeTab" hidden>
+        <p class="advanced-panel-description" id="advancedPanelDescription">
+          Use one font for CJK (Chinese, Japanese, Korean) text and punctuation, and another font for non-CJK text.
+        </p>
+        <label for="advancedCjkSelect" id="advancedCjkLabel">CJK (Chinese / Japanese / Korean)</label>
+        <select id="advancedCjkSelect"></select>
+
+        <label for="advancedLatinSelect" id="advancedLatinLabel">Non-CJK (Latin / numbers / punctuation)</label>
+        <select id="advancedLatinSelect"></select>
+        <p class="advanced-help" id="advancedHelpText">
+          Single-font and CJK / Latin split settings are saved separately. The active tab controls the page.
+        </p>
+      </section>
+
+      <div class="toggle-row">
+        <label id="toggleLabel" for="enableCheckbox">
+          <input type="checkbox" id="enableCheckbox">
+          <span id="toggleLabelText">Enable font replacement</span>
+        </label>
+      </div>
+
+      <div class="toggle-row site-toggle-row">
+        <label id="siteToggleLabel" for="siteDisableCheckbox">
+          <input type="checkbox" id="siteDisableCheckbox">
+          <span id="siteDisableLabelText">Disable on this site</span>
+        </label>
+        <span class="site-badge" id="siteBadge">-</span>
+      </div>
+
+      <div class="status-text" id="statusText">Font replacement is disabled.</div>
+
+      <section class="preview-card">
+        <div class="preview-header">
+          <span id="previewTitle">Live preview</span>
+          <button type="button" id="resetButton">Reset</button>
+        </div>
+        <textarea id="previewInput" spellcheck="false" wrap="soft" aria-label="Font preview text"></textarea>
+      </section>
+    </main>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

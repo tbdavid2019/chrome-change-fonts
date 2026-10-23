@@ -6,6 +6,7 @@ const LOCALES = {
     toggleLabel: '啟用字體替換',
     siteDisableLabel: '此網站不生效',
     siteBadgeUnavailable: '未偵測',
+    siteBadgeWeb: '網頁版預覽',
     statusDisabled: '尚未啟用字體替換。',
     statusEnabled: '已啟用：{font}',
     statusEnabledAdvanced: '已啟用：CJK / 英數分開',
@@ -36,6 +37,7 @@ const LOCALES = {
     toggleLabel: 'Enable font replacement',
     siteDisableLabel: 'Disable on this site',
     siteBadgeUnavailable: 'Unknown site',
+    siteBadgeWeb: 'Web Preview',
     statusDisabled: 'Font replacement is disabled.',
     statusEnabled: 'Enabled: {font}',
     statusEnabledAdvanced: 'Enabled: CJK / Latin split',
@@ -69,6 +71,66 @@ const FONT_MODE_ADVANCED = 'advanced';
 const PREVIEW_CJK_FONT_FAMILY = 'PopupFontChangerCjk';
 const CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
 const FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+
+const hasChrome = typeof chrome !== 'undefined';
+const hasTabs = Boolean(hasChrome && chrome.tabs && typeof chrome.tabs.query === 'function');
+const hasStorage = Boolean(hasChrome && chrome.storage && chrome.storage.sync);
+const hasFontSettings = Boolean(hasChrome && chrome.fontSettings && typeof chrome.fontSettings.getFontList === 'function');
+const isExtensionEnv = Boolean(hasChrome && chrome.runtime && chrome.runtime.id);
+
+const appStorage = {
+  get: function (keys, callback) {
+    if (hasStorage) {
+      try {
+        chrome.storage.sync.get(keys, callback);
+        return;
+      } catch (_e) {
+        // Fallback to localStorage below
+      }
+    }
+    const result = {};
+    const keyList = Array.isArray(keys) ? keys : Object.keys(keys || {});
+    try {
+      keyList.forEach(function (k) {
+        const raw = localStorage.getItem('fontChanger_' + k);
+        if (raw !== null) {
+          try {
+            result[k] = JSON.parse(raw);
+          } catch (_err) {
+            result[k] = raw;
+          }
+        } else if (typeof keys === 'object' && !Array.isArray(keys) && keys[k] !== undefined) {
+          result[k] = keys[k];
+        }
+      });
+    } catch (_e) {
+      // Ignore private browsing storage limitations
+    }
+    setTimeout(function () {
+      callback(result);
+    }, 0);
+  },
+  set: function (items, callback) {
+    if (hasStorage) {
+      try {
+        chrome.storage.sync.set(items, callback);
+        return;
+      } catch (_e) {
+        // Fallback to localStorage below
+      }
+    }
+    try {
+      Object.keys(items || {}).forEach(function (k) {
+        localStorage.setItem('fontChanger_' + k, JSON.stringify(items[k]));
+      });
+    } catch (_e) {
+      // Ignore private browsing storage limitations
+    }
+    if (typeof callback === 'function') {
+      setTimeout(callback, 0);
+    }
+  },
+};
 
 const TAGORE_PREVIEW_SAMPLES = [
   "她的熱切的臉，如夜雨似的，攪擾著我的夢魂。\nHer wishful face haunts my dreams like the rain at night.",
@@ -123,11 +185,12 @@ document.addEventListener('DOMContentLoaded', function () {
   applyLocale(messages, ui);
   ui.previewInput.value = defaultPreview;
 
-  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-    activeTab = tabs && tabs.length ? tabs[0] : null;
-    ui.siteBadge.textContent = getTabLabel(activeTab && activeTab.url) || messages.siteBadgeUnavailable;
+  getActiveTab(function (tab) {
+    activeTab = tab;
+    const initialBadge = getTabBadgeLabel(activeTab);
+    ui.siteBadge.textContent = initialBadge || messages.siteBadgeUnavailable;
 
-    chrome.storage.sync.get([
+    appStorage.get([
       UI_LANGUAGE_KEY,
       'selectedFont',
       'isEnabled',
@@ -139,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function () {
         sortLocale = locale === 'zh-Hant' ? 'zh-Hant' : 'en';
         messages = LOCALES[locale] || LOCALES.en;
         applyLocale(messages, ui);
-        ui.siteBadge.textContent = getTabLabel(activeTab && activeTab.url) || messages.siteBadgeUnavailable;
+        ui.siteBadge.textContent = getTabBadgeLabel(activeTab) || messages.siteBadgeUnavailable;
       }
 
       currentFontMode = normalizeFontMode(result[FONT_MODE_KEY]);
@@ -165,7 +228,7 @@ document.addEventListener('DOMContentLoaded', function () {
     sortLocale = locale === 'zh-Hant' ? 'zh-Hant' : 'en';
     messages = LOCALES[locale] || LOCALES.en;
 
-    chrome.storage.sync.set({ [UI_LANGUAGE_KEY]: locale });
+    appStorage.set({ [UI_LANGUAGE_KEY]: locale });
     rerenderLocale();
   });
 
@@ -217,6 +280,35 @@ document.addEventListener('DOMContentLoaded', function () {
     updateFont();
   });
 
+  function getActiveTab(callback) {
+    if (hasTabs) {
+      try {
+        chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+          callback(tabs && tabs.length ? tabs[0] : null);
+        });
+        return;
+      } catch (_e) {
+        // Fallback to web tab representation
+      }
+    }
+    callback({
+      id: null,
+      url: typeof window !== 'undefined' ? window.location.href : '',
+      title: typeof document !== 'undefined' ? document.title : '',
+    });
+  }
+
+  function getTabBadgeLabel(tab) {
+    if (!tab || !tab.url) {
+      return messages.siteBadgeWeb || messages.siteBadgeUnavailable;
+    }
+    const host = getTabLabel(tab.url);
+    if (!host || host === 'localhost' || tab.url.startsWith('file:') || tab.url.startsWith('http://localhost')) {
+      return messages.siteBadgeWeb || host || messages.siteBadgeUnavailable;
+    }
+    return host;
+  }
+
   function handleAdvancedConfigChange() {
     syncModeUi();
     if (currentFontMode === FONT_MODE_ADVANCED) {
@@ -232,8 +324,8 @@ document.addEventListener('DOMContentLoaded', function () {
   function updateFont() {
     const payload = getCurrentSettings();
 
-    chrome.storage.sync.set(payload, function () {
-      if (!activeTab) {
+    appStorage.set(payload, function () {
+      if (!activeTab || !activeTab.id || !isExtensionEnv) {
         return;
       }
 
@@ -251,7 +343,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function persistSettings(callback) {
-    chrome.storage.sync.set(getCurrentSettings(), function () {
+    appStorage.set(getCurrentSettings(), function () {
       if (typeof callback === 'function') {
         callback();
       }
@@ -264,10 +356,78 @@ document.addEventListener('DOMContentLoaded', function () {
       syncModeUi();
       applyPreview();
       updateStatus(siteDisableCheckbox.checked);
-      if (activeTab && activeTab.url) {
-        ui.siteBadge.textContent = getTabLabel(activeTab.url) || messages.siteBadgeUnavailable;
-      }
+      ui.siteBadge.textContent = getTabBadgeLabel(activeTab) || messages.siteBadgeUnavailable;
       syncPageState();
+    });
+  }
+
+  function fetchSystemFonts(callback) {
+    if (hasFontSettings) {
+      try {
+        chrome.fontSettings.getFontList(function (fonts) {
+          callback(Array.isArray(fonts) ? fonts : []);
+        });
+        return;
+      } catch (_e) {
+        // Fallback to Local Font Access API or curated fonts
+      }
+    }
+
+    if (typeof window !== 'undefined' && 'queryLocalFonts' in window) {
+      window.queryLocalFonts()
+        .then(function (fontData) {
+          const seen = new Set();
+          const list = [];
+          fontData.forEach(function (f) {
+            const name = f.family || f.fullName;
+            if (name && !seen.has(name)) {
+              seen.add(name);
+              list.push({ displayName: name, fontId: name });
+            }
+          });
+          if (list.length > 0) {
+            callback(list);
+            return;
+          }
+          callback(getCuratedWebFonts());
+        })
+        .catch(function () {
+          callback(getCuratedWebFonts());
+        });
+      return;
+    }
+
+    callback(getCuratedWebFonts());
+  }
+
+  function getCuratedWebFonts() {
+    const names = [
+      'Gen Jyuu Gothic',
+      'Noto Sans TC',
+      'Noto Serif TC',
+      'PingFang TC',
+      'Microsoft JhengHei',
+      'BiauKai',
+      'Hiragino Sans TC',
+      'Source Han Sans TC',
+      'JetBrains Mono',
+      'SF Mono',
+      'Fira Code',
+      'Menlo',
+      'Monaco',
+      'Consolas',
+      'Courier New',
+      'Inter',
+      'Roboto',
+      'SF Pro Display',
+      'Segoe UI',
+      'Helvetica Neue',
+      'Arial',
+      'Georgia',
+      'Times New Roman',
+    ];
+    return names.map(function (name) {
+      return { displayName: name, fontId: name };
     });
   }
 
@@ -276,11 +436,11 @@ document.addEventListener('DOMContentLoaded', function () {
     const selectedCjk = advancedCjkSelect.value;
     const selectedLatin = advancedLatinSelect.value;
 
-    populateFontSelect(fontSelect, selectedBasic);
-    populateFontSelect(advancedCjkSelect, selectedCjk);
-    populateFontSelect(advancedLatinSelect, selectedLatin);
+    populateFontSelect(fontSelect);
+    populateFontSelect(advancedCjkSelect);
+    populateFontSelect(advancedLatinSelect);
 
-    chrome.fontSettings.getFontList(function (fonts) {
+    fetchSystemFonts(function (fonts) {
       const sortedFonts = (Array.isArray(fonts) ? fonts : [])
         .slice()
         .sort((a, b) => a.displayName.localeCompare(b.displayName, sortLocale));
@@ -316,20 +476,37 @@ document.addEventListener('DOMContentLoaded', function () {
   function addFontOption(selectElement, font) {
     const option = document.createElement('option');
     option.text = font.displayName;
+    option.textContent = font.displayName;
     option.value = font.displayName;
     option.dataset.fontId = font.fontId;
     selectElement.add(option);
   }
 
   function setSelectValue(selectElement, value) {
-    const matchedOption = Array.from(selectElement.options).find(function (option) {
+    const options = Array.from(selectElement.options);
+    const matchedIndex = options.findIndex(function (option) {
       return option.value === value || option.dataset.fontId === value;
     });
-    selectElement.value = matchedOption ? matchedOption.value : '';
+    if (matchedIndex !== -1) {
+      selectElement.selectedIndex = matchedIndex;
+      selectElement.value = options[matchedIndex].value;
+    } else {
+      selectElement.selectedIndex = 0;
+      selectElement.value = '';
+    }
   }
 
   function updateSiteDisable() {
-    if (!activeTab) {
+    if (!activeTab || !activeTab.id || !isExtensionEnv) {
+      const host = getTabLabel(activeTab && activeTab.url);
+      if (host) {
+        try {
+          localStorage.setItem('fontChangerDisabled_' + host, String(siteDisableCheckbox.checked));
+        } catch (_e) {
+          // Ignore storage limitation
+        }
+      }
+      updateStatus(siteDisableCheckbox.checked);
       return;
     }
 
@@ -351,8 +528,20 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function syncPageState() {
-    if (!activeTab) {
-      siteDisableCheckbox.disabled = true;
+    if (!activeTab || !activeTab.id || !isExtensionEnv) {
+      siteDisableCheckbox.disabled = false;
+      const host = getTabLabel(activeTab && activeTab.url);
+      let isSiteDisabled = false;
+      if (host) {
+        try {
+          isSiteDisabled = localStorage.getItem('fontChangerDisabled_' + host) === 'true';
+        } catch (_e) {
+          isSiteDisabled = false;
+        }
+      }
+      siteDisableCheckbox.checked = isSiteDisabled;
+      ui.siteBadge.textContent = getTabBadgeLabel(activeTab);
+      updateStatus(isSiteDisabled);
       return;
     }
 
@@ -480,7 +669,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
       const selectedOption = fontSelect.options[fontSelect.selectedIndex];
       const fallbackLabel = messages.defaultFontOption;
-      const fontLabel = selectedOption ? selectedOption.textContent : fallbackLabel;
+      const fontLabel = selectedOption ? (selectedOption.textContent || selectedOption.text || selectedOption.value) : fallbackLabel;
       ui.statusText.textContent = messages.statusEnabled.replace('{font}', fontLabel);
       return;
     }
@@ -489,6 +678,11 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function sendMessageToTab(tabId, payload, callback) {
+    if (!hasTabs || !tabId) {
+      callback({ ok: false, restricted: false });
+      return;
+    }
+
     ensureContentScript(tabId, function (result) {
       if (!result.ok) {
         callback(result);
@@ -508,9 +702,19 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function ensureContentScript(tabId, callback) {
+    if (!hasTabs || !tabId) {
+      callback({ ok: false, restricted: false });
+      return;
+    }
+
     chrome.tabs.sendMessage(tabId, { action: 'getPageState' }, function () {
       if (!chrome.runtime.lastError) {
         callback({ ok: true, restricted: false });
+        return;
+      }
+
+      if (!chrome.scripting || typeof chrome.scripting.executeScript !== 'function') {
+        callback({ ok: false, restricted: false });
         return;
       }
 
@@ -592,7 +796,7 @@ document.addEventListener('DOMContentLoaded', function () {
       typeof chrome.i18n.getUILanguage === 'function'
         ? chrome.i18n.getUILanguage()
         : null,
-      navigator.language,
+      typeof navigator !== 'undefined' ? navigator.language : null,
     ];
     for (const lang of candidates) {
       if (!lang) continue;

@@ -3,7 +3,7 @@ const SITE_DISABLE_KEY = 'fontChangerDisabled';
 const EXCLUDE_ATTRIBUTE = 'data-font-changer-exclude';
 const LIGATURE_ICON_ATTRIBUTE = 'data-font-changer-ligature-icon';
 const GOOGLE_LOGO_ATTRIBUTE = 'data-font-changer-google-logo';
-const INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [aria-haspopup], [aria-expanded], [jsaction], [data-tooltip], [data-is-muted]';
+const INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [data-is-muted]';
 const FONT_MODE_BASIC = 'basic';
 const FONT_MODE_ADVANCED = 'advanced';
 const CJK_FONT_FAMILY = 'FontChangerCjk';
@@ -38,10 +38,21 @@ const EXCLUDE_CLASSES = [
   '[class*="material-symbols"]',
   '.google-symbols',
   '[class*="google-symbols"]',
+  '.google-material-icons',
   '[class*="google-material"]',
   '.material-icons-extended',
   '[class*="material-icons-extended"]',
   '.DPvwYc',
+  '.z1asCe',
+  '[class*="z1asCe"]',
+  '[class*="notranslate"]',
+  '[translate="no"]',
+  'svg',
+  'svg *',
+  'g-icon',
+  'yt-icon',
+  'iron-icon',
+  'mwc-icon',
   'mat-icon',
   'md-icon',
   '.fa',
@@ -214,6 +225,18 @@ function isGooglePlaySite() {
   return false;
 }
 
+function isGoogleSite() {
+  try {
+    const host = (typeof location !== 'undefined' && (location.hostname || location.host)) ? (location.hostname || location.host) : '';
+    if (/(?:^|\.)(?:google\.[a-z]+(?:\.[a-z]+)?|youtube\.com|gstatic\.com)$/i.test(host)) return true;
+    if (typeof document !== 'undefined' && document.location) {
+      const docHost = document.location.hostname || document.location.host || '';
+      if (/(?:^|\.)(?:google\.[a-z]+(?:\.[a-z]+)?|youtube\.com|gstatic\.com)$/i.test(docHost)) return true;
+    }
+  } catch (_e) {}
+  return false;
+}
+
 function buildFontTargetSuffix() {
   let excludeSelectors = EXCLUDE_CLASSES
     .concat(dynamicIconSelectors)
@@ -267,14 +290,26 @@ const SINGLE_WORD_ICON_NAMES = new Set([
   'fullscreen', 'warning', 'error', 'cancel', 'schedule', 'language', 'translate',
   'visibility', 'face', 'sensors', 'speed', 'security', 'shield', 'bolt',
   'flash', 'circle', 'square', 'lens', 'copy', 'print', 'save', 'note',
-  'draft', 'terminal', 'code', 'laptop', 'desktop', 'headset', 'speaker',
+  'draft', 'drafts', 'terminal', 'code', 'laptop', 'desktop', 'headset', 'speaker',
   'volume', 'link', 'launch', 'login', 'logout', 'power', 'thumb', 'broadcast',
   'subtitles', 'caption', 'captions', 'shapes', 'category', 'record', 'recording',
   'pan', 'tool', 'present',
   'devices', 'device', 'tablet', 'apps', 'reviews', 'payment', 'redeem',
   'badge', 'verified', 'expand', 'collapse', 'navigate', 'chevron', 'arrow',
-  'install', 'update', 'public'
+  'install', 'update', 'public',
+  // Google Workspace & Apps icons
+  'inbox', 'archive', 'snooze', 'undo', 'redo', 'call', 'event', 'today',
+  'description', 'article', 'dashboard', 'palette', 'favorite', 'store',
+  'label', 'labels', 'contacts', 'groups', 'inventory', 'dns', 'storage',
+  'memory', 'policy', 'feedback', 'report', 'stars', 'grade', 'place',
+  'layers', 'camera', 'photo', 'video', 'music', 'album', 'audio', 'radio',
+  'tv', 'movie', 'history', 'restaurant', 'hotel', 'flight', 'train', 'bus',
+  'directions', 'satellite', 'terrain', 'traffic', 'crop', 'brush', 'draw',
+  'colorize', 'straighten', 'attachment', 'navigation', 'explore', 'wallet',
+  'calculator', 'north', 'south', 'east', 'west'
 ]);
+
+const PUA_REGEX = /[\uE000-\uF8FF\uDB80-\uDBFF\uDC00-\uDFFF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u;
 
 function normalizeLigatureText(text) {
   return String(text || '')
@@ -287,18 +322,33 @@ function isIconContext(element) {
   if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
 
   const tagName = (element.tagName || '').toLowerCase();
-  if (tagName === 'i' || tagName === 'mat-icon' || tagName === 'md-icon' || tagName === 'g-icon') {
+  if (
+    tagName === 'i' ||
+    tagName === 'mat-icon' ||
+    tagName === 'md-icon' ||
+    tagName === 'g-icon' ||
+    tagName === 'yt-icon' ||
+    tagName === 'iron-icon' ||
+    tagName === 'mwc-icon' ||
+    tagName === 'svg'
+  ) {
     return true;
   }
 
-  const className = String(element.className || '').toLowerCase();
+  const rawClass = typeof element.className === 'string'
+    ? element.className
+    : (element.className && typeof element.className.baseVal === 'string' ? element.className.baseVal : '');
+  const className = rawClass.toLowerCase();
+
   if (
     className.includes('icon') ||
     className.includes('symbol') ||
     className.includes('material') ||
     className.includes('glyph') ||
     className.includes('notranslate') ||
-    className.includes('dpvwyc')
+    className.includes('dpvwyc') ||
+    className.includes('z1asce') ||
+    className.includes('vfppkd')
   ) {
     return true;
   }
@@ -316,28 +366,62 @@ function isIconContext(element) {
     if (element.hasAttribute('aria-hidden') && element.getAttribute('aria-hidden') === 'true') {
       return true;
     }
-    if (element.hasAttribute('data-icon') || element.hasAttribute('data-icon-name') || element.hasAttribute('data-symbol')) {
+    if (
+      element.hasAttribute('data-icon') ||
+      element.hasAttribute('data-icon-name') ||
+      element.hasAttribute('data-symbol') ||
+      element.hasAttribute('data-material-icon')
+    ) {
       return true;
     }
     if (element.hasAttribute('translate') && element.getAttribute('translate') === 'no') {
       return true;
     }
+    if (element.hasAttribute('jsname') && isGoogleSite()) {
+      const jsname = element.getAttribute('jsname') || '';
+      if (jsname && (tagName === 'span' || tagName === 'i' || isLeafElement(element))) {
+        return true;
+      }
+    }
   }
 
   if (element.parentElement && element.parentElement.nodeType === Node.ELEMENT_NODE) {
     const parent = element.parentElement;
-    const parentClass = String(parent.className || '').toLowerCase();
+    const parentRawClass = typeof parent.className === 'string'
+      ? parent.className
+      : (parent.className && typeof parent.className.baseVal === 'string' ? parent.className.baseVal : '');
+    const parentClass = parentRawClass.toLowerCase();
     const parentStyle = String((typeof parent.getAttribute === 'function' && parent.getAttribute('style')) || (parent.style && parent.style.fontFamily) || '').toLowerCase();
     if (
       parentClass.includes('icon') ||
       parentClass.includes('symbol') ||
       parentClass.includes('material') ||
       parentClass.includes('dpvwyc') ||
+      parentClass.includes('notranslate') ||
+      parentClass.includes('z1asce') ||
+      parentClass.includes('vfppkd') ||
       parentStyle.includes('icon') ||
       parentStyle.includes('symbol') ||
       parentStyle.includes('material')
     ) {
       return true;
+    }
+
+    if (typeof parent.hasAttribute === 'function') {
+      if (parent.hasAttribute('aria-hidden') && parent.getAttribute('aria-hidden') === 'true') {
+        return true;
+      }
+      if (parent.hasAttribute('translate') && parent.getAttribute('translate') === 'no') {
+        return true;
+      }
+      if (
+        parent.hasAttribute('data-icon') ||
+        parent.hasAttribute('data-icon-name') ||
+        parent.hasAttribute('data-symbol') ||
+        parent.hasAttribute('data-material-icon')
+      ) {
+        return true;
+      }
     }
   }
 
@@ -366,6 +450,10 @@ function isLikelyLigatureIconText(text, element) {
   const normalized = normalizeLigatureText(text);
   if (!normalized) return false;
   if (normalized.length > 40) return false;
+
+  if (PUA_REGEX.test(normalized)) {
+    return true;
+  }
   
   if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(normalized)) {
     if (element && isCodeContext(element) && !isIconContext(element)) {
@@ -411,6 +499,16 @@ function markExcludedElement(element) {
   element.setAttribute(EXCLUDE_ATTRIBUTE, '1');
 }
 
+function shouldExcludeInteractiveAncestor(ancestor, iconElement) {
+  if (!ancestor) return false;
+  const ancestorText = normalizeLigatureText(ancestor.textContent);
+  const iconText = normalizeLigatureText(iconElement ? iconElement.textContent : '');
+  if (!ancestorText || ancestorText === iconText) {
+    return true;
+  }
+  return false;
+}
+
 function markLigatureIconElement(element) {
   markExcludedElement(element);
   if (element && typeof element.setAttribute === 'function') {
@@ -419,7 +517,7 @@ function markLigatureIconElement(element) {
 
   if (typeof element.closest === 'function') {
     const ancestor = element.closest(INTERACTIVE_EXCLUDE_SELECTOR);
-    if (ancestor && ancestor !== element) {
+    if (ancestor && ancestor !== element && shouldExcludeInteractiveAncestor(ancestor, element)) {
       markExcludedElement(ancestor);
     }
   }
@@ -631,6 +729,8 @@ function isIconFontName(name) {
     normalized.includes('brand') ||
     normalized.includes('lucide') ||
     normalized.includes('feather') ||
+    normalized.includes('octicon') ||
+    normalized.includes('entypo') ||
     normalized.includes('logo') ||
     normalized.includes('social') ||
     normalized.includes('payment')
@@ -645,40 +745,46 @@ function scanStylesheets(root) {
   const detectedClasses = new Set();
   const iconFontFamilies = new Set();
 
+  function processRules(rules) {
+    if (!rules) return;
+    for (const rule of rules) {
+      if (rule.type === 5) { // CSSRule.FONT_FACE_RULE
+        const fontFamily = rule.style && rule.style.getPropertyValue('font-family');
+        if (fontFamily) {
+          const cleanName = fontFamily.replace(/['"]/g, '').trim();
+          if (isIconFontName(cleanName)) {
+            iconFontFamilies.add(cleanName);
+          }
+        }
+      } else if (rule.type === 1) { // CSSRule.STYLE_RULE
+        const fontFamily = rule.style && rule.style.fontFamily;
+        if (fontFamily) {
+          const families = fontFamily.split(',').map(f => f.replace(/['"]/g, '').trim());
+          const hasIconFont = families.some(f => isIconFontName(f) || iconFontFamilies.has(f));
+          if (hasIconFont && rule.selectorText) {
+            const regex = /\.([a-zA-Z0-9_-]+)/g;
+            let match;
+            while ((match = regex.exec(rule.selectorText)) !== null) {
+              detectedClasses.add('.' + match[1]);
+            }
+          }
+        }
+      } else if (rule.cssRules) {
+        // Traverse nested grouping rules (@media, @supports, @layer)
+        try {
+          processRules(rule.cssRules);
+        } catch (_e) {}
+      }
+    }
+  }
+
   for (const sheet of sheets) {
     try {
       const rules = sheet.cssRules || sheet.rules;
-      if (!rules) continue;
-      
-      for (const rule of rules) {
-        if (rule.type === 5) { // CSSRule.FONT_FACE_RULE
-          const fontFamily = rule.style.getPropertyValue('font-family');
-          if (fontFamily) {
-            const cleanName = fontFamily.replace(/['"]/g, '').trim();
-            if (isIconFontName(cleanName)) {
-              iconFontFamilies.add(cleanName);
-            }
-          }
-        }
+      if (rules) {
+        processRules(rules);
       }
-
-      for (const rule of rules) {
-        if (rule.type === 1) { // CSSRule.STYLE_RULE
-          const fontFamily = rule.style.fontFamily;
-          if (fontFamily) {
-            const families = fontFamily.split(',').map(f => f.replace(/['"]/g, '').trim());
-            const hasIconFont = families.some(f => isIconFontName(f) || iconFontFamilies.has(f));
-            if (hasIconFont && rule.selectorText) {
-              const regex = /\.([a-zA-Z0-9_-]+)/g;
-              let match;
-              while ((match = regex.exec(rule.selectorText)) !== null) {
-                detectedClasses.add('.' + match[1]);
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
+    } catch (_e) {
       // Ignore cross-origin stylesheet access error
     }
   }
@@ -866,35 +972,83 @@ function handleRemovedNodes(mutation) {
   }
 }
 
-// 監聽 DOM 變動 (Debounced)
-let scanTimeout;
-const documentObserver = new MutationObserver((mutations) => {
-  if (scanTimeout) clearTimeout(scanTimeout);
-  
-  scanTimeout = setTimeout(() => {
-    for (const mutation of mutations) {
-      if (mutation.type === 'characterData') {
-        updateLigatureIconTextNode(mutation.target);
-        continue;
-      }
-      handleRemovedNodes(mutation);
+// 監聽 DOM 變動 (Debounced with mutation accumulation & max-wait throttle)
+let pendingMutations = [];
+let scanTimeout = null;
+let scanMaxWaitTimeout = null;
+const OBSERVER_DEBOUNCE_MS = 60;
+const OBSERVER_MAX_WAIT_MS = 250;
+
+function processPendingMutations() {
+  if (scanTimeout) {
+    clearTimeout(scanTimeout);
+    scanTimeout = null;
+  }
+  if (scanMaxWaitTimeout) {
+    clearTimeout(scanMaxWaitTimeout);
+    scanMaxWaitTimeout = null;
+  }
+
+  if (pendingMutations.length === 0) return;
+  const mutationsToProcess = pendingMutations.splice(0);
+
+  for (const mutation of mutationsToProcess) {
+    if (mutation.type === 'characterData') {
+      updateLigatureIconTextNode(mutation.target);
+      continue;
+    }
+    handleRemovedNodes(mutation);
+    if (mutation.addedNodes) {
       for (const node of mutation.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
           scanForLigatureIcons(node);
           if (node.nodeType === Node.ELEMENT_NODE) {
             scanForShadowRoots(node);
-            const tagName = node.tagName.toLowerCase();
-            if (tagName === 'style' || tagName === 'link') {
+            const tagName = (node.tagName || '').toLowerCase();
+            if (tagName === 'style' || tagName === 'link' || (typeof node.querySelector === 'function' && node.querySelector('style, link'))) {
               triggerStylesheetScan(document);
             }
           }
         }
       }
     }
-  }, 100);
+  }
+}
+
+const documentObserver = new MutationObserver((mutations) => {
+  for (let i = 0; i < mutations.length; i++) {
+    pendingMutations.push(mutations[i]);
+  }
+  if (scanTimeout) clearTimeout(scanTimeout);
+  scanTimeout = setTimeout(processPendingMutations, OBSERVER_DEBOUNCE_MS);
+  if (!scanMaxWaitTimeout) {
+    scanMaxWaitTimeout = setTimeout(processPendingMutations, OBSERVER_MAX_WAIT_MS);
+  }
+  if (pendingMutations.length > 500) {
+    processPendingMutations();
+  }
 });
 
 documentObserver.observe(document, { childList: true, subtree: true, characterData: true });
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (shouldApplyCustomFont()) {
+        scanForLigatureIcons(document.documentElement);
+        scanStylesheets(document);
+      }
+    }, { once: true });
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('load', () => {
+      if (shouldApplyCustomFont()) {
+        scanForLigatureIcons(document.documentElement);
+        scanStylesheets(document);
+      }
+    }, { once: true });
+  }
+}
 
 function collectFontRules() {
   const fontRules = [];
@@ -1024,39 +1178,66 @@ function registerDocumentPictureInPicture(pipWindow) {
     }
   }
 
-  let pipScanTimeout;
-  const observer = new MutationObserver((mutations) => {
-    if (!shouldApplyCustomFont()) return;
+  let pendingPipMutations = [];
+  let pipScanTimeout = null;
+  let pipScanMaxWaitTimeout = null;
 
-    if (pipScanTimeout) clearTimeout(pipScanTimeout);
-    pipScanTimeout = setTimeout(() => {
-      let hasStyleOrLinkAdded = false;
+  function processPendingPipMutations() {
+    if (pipScanTimeout) {
+      clearTimeout(pipScanTimeout);
+      pipScanTimeout = null;
+    }
+    if (pipScanMaxWaitTimeout) {
+      clearTimeout(pipScanMaxWaitTimeout);
+      pipScanMaxWaitTimeout = null;
+    }
 
-      for (const mutation of mutations) {
-        if (mutation.type === 'characterData') {
-          updateLigatureIconTextNode(mutation.target);
-          continue;
-        }
-        handleRemovedNodes(mutation);
+    if (pendingPipMutations.length === 0) return;
+    const batch = pendingPipMutations.splice(0);
+    let hasStyleOrLinkAdded = false;
+
+    for (const mutation of batch) {
+      if (mutation.type === 'characterData') {
+        updateLigatureIconTextNode(mutation.target);
+        continue;
+      }
+      handleRemovedNodes(mutation);
+      if (mutation.addedNodes) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
             scanForLigatureIcons(node);
             if (node.nodeType === Node.ELEMENT_NODE) {
               scanForShadowRoots(node);
-              const tagName = node.tagName.toLowerCase();
-              if (tagName === 'style' || tagName === 'link') {
+              const tagName = (node.tagName || '').toLowerCase();
+              if (tagName === 'style' || tagName === 'link' || (typeof node.querySelector === 'function' && node.querySelector('style, link'))) {
                 hasStyleOrLinkAdded = true;
               }
             }
           }
         }
       }
+    }
 
-      if (hasStyleOrLinkAdded) {
-        copyFontResourcesToPip(pipDoc);
-        triggerStylesheetScan(pipDoc);
-      }
-    }, 100);
+    if (hasStyleOrLinkAdded) {
+      copyFontResourcesToPip(pipDoc);
+      triggerStylesheetScan(pipDoc);
+    }
+  }
+
+  const observer = new MutationObserver((mutations) => {
+    if (!shouldApplyCustomFont()) return;
+
+    for (let i = 0; i < mutations.length; i++) {
+      pendingPipMutations.push(mutations[i]);
+    }
+    if (pipScanTimeout) clearTimeout(pipScanTimeout);
+    pipScanTimeout = setTimeout(processPendingPipMutations, OBSERVER_DEBOUNCE_MS);
+    if (!pipScanMaxWaitTimeout) {
+      pipScanMaxWaitTimeout = setTimeout(processPendingPipMutations, OBSERVER_MAX_WAIT_MS);
+    }
+    if (pendingPipMutations.length > 500) {
+      processPendingPipMutations();
+    }
   });
 
   try {

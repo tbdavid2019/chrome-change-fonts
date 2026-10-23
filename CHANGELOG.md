@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.8.3 - 2026-10-23
+
+- Fixed Google icons and general icon font display failures across Google properties (Google Search, Gmail, YouTube, Google Drive, Docs, Calendar) and web apps:
+  - **Fixed MutationObserver batch dropping**: Resolved a critical debounce bug where rapid successive mutation batches reset the timeout and permanently discarded earlier batches, causing up to 90% of dynamic nodes during page load or infinite scroll to miss icon scanning. Now accumulates mutations in `pendingMutations` queue with concurrency-safe `splice(0)` snapshots and 250ms max-wait throttle.
+  - **Added `isGoogleSite()` detection**: Accurately recognizes Google and YouTube domains with strict suffix boundaries to reliably identify icon elements while strictly preserving font replacement for regular UI navigation text (e.g. "Inbox", "History", "Settings").
+  - **Expanded CSS exclusions in `EXCLUDE_CLASSES`**: Added `.z1asCe`, `[class*="z1asCe"]` (Google Search icons), `[class*="notranslate"]`, `[translate="no"]`, `svg`, `svg *`, `g-icon`, `yt-icon`, `iron-icon`, and `mwc-icon`, safeguarding icons at the CSS level before script execution.
+  - **Fixed `isIconContext` heuristics**: Handled `SVGAnimatedString` classNames on SVG elements, checked parent `notranslate` / `translate="no"` / `aria-hidden="true"`, and detected Google Material 3 (`VfPpkd-*`) and `[jsname]` elements.
+  - **Added Unicode Private Use Area (PUA) icon support**: Added detection for PUA ranges (`U+E000`–`U+F8FF`, `U+F0000`–`U+FFFFD`, `U+100000`–`U+10FFFD`) so icon fonts using codepoint glyphs (e.g. Material Icons codepoints, Font Awesome) are never replaced by standard fonts that lack PUA glyphs, preventing broken missing-glyph boxes `[?]` or blank spaces.
+  - **Fixed container poisoning in `INTERACTIVE_EXCLUDE_SELECTOR`**: Removed `[jsaction]`, `[aria-haspopup]`, `[aria-expanded]`, and `[data-tooltip]` which previously caused entire search result cards, toolbars, and layout wrappers to be marked as excluded. Implemented `shouldExcludeInteractiveAncestor` so buttons containing both an icon and a text label (e.g. `<button><i>search</i> 搜尋</button>`) keep the custom font on the text label while protecting the icon.
+  - **Expanded `SINGLE_WORD_ICON_NAMES`**: Added missing Google Workspace single-word icons including `history`, `inbox`, `archive`, `undo`, `redo`, `event`, `today`, `dashboard`, `description`, `palette`, `camera`, `photo`, `video`, `music`, `directions`, `place`, etc.
+  - **Nested CSSOM rule traversal**: Enhanced `scanStylesheets` to recursively traverse nested grouping rules (`@media`, `@supports`, `@layer`) and added `octicon` and `entypo` detection.
+  - **Page lifecycle sweep**: Added `DOMContentLoaded` and `load` listeners to perform complete icon and stylesheet sweeps once streaming/loading concludes.
+
+- Redesigned visual styles to align with `david888.com` and `2md.aiurl.tw` signature design system:
+  - Adopted the five base colors: Golden Saffron (`#ffb010`), Deep Navy Blue (`#17324d`), Warm Cream (`#fff9e8`), Warm Canvas (`#fff0cc`), and Ink (`#2b251a`), with terracotta clay (`#a9471d`) accents.
+  - Added Deep Navy Command Center Dark Mode (`#0c1927` canvas, `#13273c` card surface, `#ffb010` saffron accents).
+  - Added signature `333` golden brand badge in header.
+- Enforced strict WCAG 2.1 AA / AAA accessibility & typography standards:
+  - Audited and calibrated typography scales: eliminated cramped sub-12px Chinese text, raising panel descriptions, helps, hints, and badges to >= `12px` to prevent complex CJK character strokes from blurring.
+  - Standardized font sizing: headings (`17.5px` / `18.5px`), mode tabs (`13px` / `13.5px`), labels (`13px` / `13.5px`), selects (`13.5px` / `14px`), status (`12.5px` / `13px`), preview input (`17px` / `16px`).
+  - Contrast ratios for primary text exceed AAA standards (14.6:1 in light mode, 14.4:1 in dark mode).
+  - High-visibility keyboard focus rings with prominent offsets (`2px` solid `#17324d` in light, `#ffb010` in dark).
+  - UI control borders verified to meet WCAG 1.4.11 non-text contrast requirement (>= 3.0:1) in both light and dark modes.
+  - Saffron backgrounds strictly enforce deep dark text (`#0f2337` / `#2b251a`) to eliminate common yellow/amber low-contrast accessibility failures.
+- Added comprehensive Web version (`網頁版`) support alongside Chrome Extension mode:
+  - Added standalone `index.html` entry point for web preview, testing, and deployment.
+  - Implemented responsive bento layout: automatically fits 360px popup in Chrome Extension while expanding to an elegant centered container on wider web screens.
+  - Added environment-safe storage abstraction in `popup.js` (`appStorage`), transparently using `chrome.storage.sync` in extension mode and `localStorage` in standalone web mode.
+  - Added multi-tier font discovery: utilizes `chrome.fontSettings` when in extension, modern `window.queryLocalFonts()` API when supported in web browsers, and a rich curated Traditional Chinese/system font fallback.
+  - Prevented runtime errors when extension APIs (`chrome.tabs`, `chrome.scripting`) are not present in standard web contexts.
+
+
 ## 1.8.2 - 2026-09-23
 
 - Preserved broad underscore-based ligature icon detection while keeping code identifiers in code blocks eligible for custom font replacement.

@@ -1,27 +1,27 @@
-const FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-const SITE_DISABLE_KEY = 'fontChangerDisabled';
-const EXCLUDE_ATTRIBUTE = 'data-font-changer-exclude';
-const LIGATURE_ICON_ATTRIBUTE = 'data-font-changer-ligature-icon';
-const GOOGLE_LOGO_ATTRIBUTE = 'data-font-changer-google-logo';
-const INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [data-is-muted]';
-const FONT_MODE_BASIC = 'basic';
-const FONT_MODE_ADVANCED = 'advanced';
-const CJK_FONT_FAMILY = 'FontChangerCjk';
-const CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
+var FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+var SITE_DISABLE_KEY = 'fontChangerDisabled';
+var EXCLUDE_ATTRIBUTE = 'data-font-changer-exclude';
+var LIGATURE_ICON_ATTRIBUTE = 'data-font-changer-ligature-icon';
+var GOOGLE_LOGO_ATTRIBUTE = 'data-font-changer-google-logo';
+var INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [data-is-muted]';
+var FONT_MODE_BASIC = 'basic';
+var FONT_MODE_ADVANCED = 'advanced';
+var CJK_FONT_FAMILY = 'FontChangerCjk';
+var CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FFEF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
 
-let currentFontFamily = '';
-let currentFontMode = FONT_MODE_BASIC;
-let currentAdvancedFontConfig = createAdvancedFontConfig();
-let isFontEnabled = false;
+var currentFontFamily = '';
+var currentFontMode = FONT_MODE_BASIC;
+var currentAdvancedFontConfig = createAdvancedFontConfig();
+var isFontEnabled = false;
 
-const rootStyles = new WeakMap();
-const trackedShadowRoots = new Set();
-const trackedPipDocuments = new Set();
-const dynamicIconSelectors = [];
-const iconSelectorsSet = new Set();
+var rootStyles = new WeakMap();
+var trackedShadowRoots = new Set();
+var trackedPipDocuments = new Set();
+var dynamicIconSelectors = [];
+var iconSelectorsSet = new Set();
 
 // 排除不需要改字體的圖示類別
-const EXCLUDE_CLASSES = [
+var EXCLUDE_CLASSES = [
   '.icon',
   '[class~="icon"]',
   '.iconfont',
@@ -169,11 +169,49 @@ function buildCompositeFontFaceCss() {
 }
 
 function buildLocalFontSources(displayName, fontId) {
-  const names = [displayName, fontId]
-    .filter((name) => typeof name === 'string' && name)
-    .filter((name, index, array) => array.indexOf(name) === index);
+  const baseNames = [displayName, fontId]
+    .filter((name) => typeof name === 'string' && name.trim())
+    .map((name) => name.trim());
 
-  return names.map((name) => `local(${JSON.stringify(name)})`).join(', ');
+  const candidates = [];
+  function addCandidate(name) {
+    if (typeof name === 'string' && name && !candidates.includes(name)) {
+      candidates.push(name);
+    }
+  }
+
+  baseNames.forEach(addCandidate);
+
+  baseNames.forEach((base) => {
+    [' Regular', '-Regular', ' Medium', '-Medium', ' Bold', '-Bold', ' Light', '-Light', ' 半糖'].forEach((suffix) => {
+      addCandidate(base + suffix);
+    });
+
+    const compact = base.replace(/[\s_]+/g, '');
+    if (compact) {
+      addCandidate(compact);
+      ['-Regular', '-Medium', '-Bold', '-Light', 'Regular-Regular', 'Regular-Medium'].forEach((suffix) => {
+        addCandidate(compact + suffix);
+      });
+    }
+
+    const asciiPart = base.replace(/[^\x20-\x7E]+/g, '').trim();
+    if (asciiPart) {
+      addCandidate(asciiPart);
+      [' Regular', '-Regular', ' Medium', '-Medium', ' Bold', '-Bold'].forEach((suffix) => {
+        addCandidate(asciiPart + suffix);
+      });
+      const asciiCompact = asciiPart.replace(/[\s_]+/g, '');
+      if (asciiCompact) {
+        addCandidate(asciiCompact);
+        ['-Regular', '-Medium', '-Bold', 'Regular-Regular', 'Regular-Medium'].forEach((suffix) => {
+          addCandidate(asciiCompact + suffix);
+        });
+      }
+    }
+  });
+
+  return candidates.map((name) => `local(${JSON.stringify(name)})`).join(', ');
 }
 
 function isSiteDisabled() {
@@ -278,7 +316,7 @@ function buildFontTargetSuffix() {
   return `${excludeSelector}:not([${EXCLUDE_ATTRIBUTE}] *)`;
 }
 
-const SINGLE_WORD_ICON_NAMES = new Set([
+var SINGLE_WORD_ICON_NAMES = new Set([
   'mic', 'videocam', 'chat', 'forum', 'people', 'group', 'person', 'settings',
   'help', 'info', 'search', 'close', 'menu', 'check', 'add', 'remove',
   'edit', 'delete', 'share', 'star', 'heart', 'send', 'image', 'folder',
@@ -309,7 +347,7 @@ const SINGLE_WORD_ICON_NAMES = new Set([
   'calculator', 'north', 'south', 'east', 'west'
 ]);
 
-const PUA_REGEX = /[\uE000-\uF8FF\uDB80-\uDBFF\uDC00-\uDFFF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u;
+var PUA_REGEX = /[\uE000-\uF8FF\uDB80-\uDBFF\uDC00-\uDFFF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u;
 
 function normalizeLigatureText(text) {
   return String(text || '')
@@ -803,7 +841,7 @@ function scanStylesheets(root) {
   }
 }
 
-let stylesheetScanTimeout;
+var stylesheetScanTimeout;
 function triggerStylesheetScan(root) {
   if (stylesheetScanTimeout) clearTimeout(stylesheetScanTimeout);
   stylesheetScanTimeout = setTimeout(() => {
@@ -817,16 +855,28 @@ function syncRoot(root) {
   let style = rootStyles.get(root);
   if (!style || !style.isConnected) {
     const doc = root.nodeType === 9 ? root : (root.ownerDocument || document);
-    style = doc.createElement('style');
-    style.className = 'font-changer-style';
-    
+    const container = root === document
+      ? (doc.head || doc.documentElement)
+      : (root.nodeType === 9 ? (root.head || root.documentElement) : root);
+
+    if (!container) return;
+
     try {
-      if (root === document) {
-        (doc.head || doc.documentElement).appendChild(style);
-      } else if (root.nodeType === 9) {
-        (root.head || root.documentElement).appendChild(style);
-      } else {
-        root.appendChild(style);
+      if (typeof container.querySelectorAll === 'function') {
+        const existingStyles = container.querySelectorAll('style.font-changer-style');
+        if (existingStyles && existingStyles.length > 0) {
+          style = existingStyles[0];
+          for (let i = 1; i < existingStyles.length; i++) {
+            if (typeof existingStyles[i].remove === 'function') {
+              existingStyles[i].remove();
+            }
+          }
+        }
+      }
+      if (!style) {
+        style = doc.createElement('style');
+        style.className = 'font-changer-style';
+        container.appendChild(style);
       }
       rootStyles.set(root, style);
     } catch (e) {
@@ -973,11 +1023,11 @@ function handleRemovedNodes(mutation) {
 }
 
 // 監聽 DOM 變動 (Debounced with mutation accumulation & max-wait throttle)
-let pendingMutations = [];
-let scanTimeout = null;
-let scanMaxWaitTimeout = null;
-const OBSERVER_DEBOUNCE_MS = 60;
-const OBSERVER_MAX_WAIT_MS = 250;
+var pendingMutations = [];
+var scanTimeout = null;
+var scanMaxWaitTimeout = null;
+var OBSERVER_DEBOUNCE_MS = 60;
+var OBSERVER_MAX_WAIT_MS = 250;
 
 function processPendingMutations() {
   if (scanTimeout) {
@@ -1015,7 +1065,13 @@ function processPendingMutations() {
   }
 }
 
-const documentObserver = new MutationObserver((mutations) => {
+if (typeof documentObserver !== 'undefined' && documentObserver && typeof documentObserver.disconnect === 'function') {
+  try {
+    documentObserver.disconnect();
+  } catch (_e) {}
+}
+
+var documentObserver = new MutationObserver((mutations) => {
   for (let i = 0; i < mutations.length; i++) {
     pendingMutations.push(mutations[i]);
   }
@@ -1265,33 +1321,47 @@ if (typeof documentPictureInPicture !== 'undefined' && documentPictureInPicture)
 }
 
 // 監聽訊息
-chrome.runtime.onMessage.addListener((request) => {
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (!request || typeof request !== 'object') return;
+
   if (request.action === 'changeFont') {
     if (request.isEnabled) {
       applyFontSettings(request);
     } else {
       restoreOriginalFont();
     }
-    return;
+    const response = { ok: true };
+    if (typeof sendResponse === 'function') {
+      sendResponse(response);
+    }
+    return Promise.resolve(response);
   }
 
   if (request.action === 'setSiteDisabled') {
     const ok = setSiteDisabled(Boolean(request.isDisabled));
     updateFontApplication();
-    return Promise.resolve({
+    const response = {
       ok,
       isSiteDisabled: isSiteDisabled(),
-    });
+    };
+    if (typeof sendResponse === 'function') {
+      sendResponse(response);
+    }
+    return Promise.resolve(response);
   }
 
   if (request.action === 'getPageState') {
-    return Promise.resolve({
+    const response = {
       ok: true,
       isSiteDisabled: isSiteDisabled(),
       href: location.href,
       origin: location.origin,
       host: location.host,
-    });
+    };
+    if (typeof sendResponse === 'function') {
+      sendResponse(response);
+    }
+    return Promise.resolve(response);
   }
 });
 

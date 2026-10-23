@@ -17,10 +17,14 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`1.8.3`
+目前版本：`1.8.4`
 
 本次版本修正：
 
+- **修復「CJK / 英數分開」模式失效與分頁套用報錯問題**：
+  - 擴充 `@font-face` 的 `local()` 字體名稱匹配候選（自動涵蓋 PostScript 名稱與完整字體名稱，如 `777jf-Medium`、`777jf金萱 半糖`、`-Regular`、`-Medium` 等），解決 macOS Chrome 在 `local()` 僅傳入字體家族名稱時匹配失敗、導致中文字被帶有中文字形的英數字體（如 `777monolisa Regular 繁中`）整碗端走的問題。
+  - 擴充 `CJK_UNICODE_RANGE` 納入全形標點符號區段（`U+FE30-FE4F`、`U+FF00-FFEF`）。
+  - 修正 `content.js` 的 `changeFont` 訊息未呼叫 `sendResponse` 導致彈出視窗誤報「無法套用字體，請重新整理此分頁後再試」的問題，並支援重複注入冪等保護與跨網域 iframe（如內嵌 YouTube 播放器）的主框架降級注入。
 - **徹底修復 Google 與各式網頁 Icon（圖示）顯示失效問題**：
   - 修正 `MutationObserver` 累積佇列遺失問題（過去快速動態載入如 Google 搜尋、Gmail、YouTube 時會覆蓋 clearTimeout 丟棄高達 90% 的新增節點），全面改為 `pendingMutations` 佇列處理。
   - 補足 Google 網域自動判斷（`isGoogleSite`），支援現代 Google 混淆類別（`z1asCe`、`VfPpkd-*`）、`[jsname]` 與 SVG 元素屬性。

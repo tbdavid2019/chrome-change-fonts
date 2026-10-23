@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.8.4 - 2026-10-23
+
+- Fixed CJK / Latin split mode (`CJK / 英數分開`) failure and tab injection errors:
+  - **Fixed `@font-face` `local()` CJK font resolution**: Expanded `buildLocalFontSources` in `content.js` and `popup.js` to include PostScript and Full Font Name candidates (e.g. `-Regular`, `-Medium`, `半糖`, ASCII prefix variants like `777jf-Medium`), preventing Chromium on macOS from failing to match CJK fonts by family name alone and falling through to merged non-CJK fonts (such as `777monolisa Regular 繁中`).
+  - **Expanded `CJK_UNICODE_RANGE`**: Added `U+FE30-FE4F` and `U+FF00-FFEF` so fullwidth CJK punctuation (`，`, `。`, `！`, `？`, `（`, `）`) consistently uses the CJK font.
+  - **Fixed `changeFont` message response & re-injection**: Added `sendResponse({ ok: true })` to `chrome.runtime.onMessage` in `content.js`, made `content.js` idempotent across re-injections (`var` top-level bindings and existing `style.font-changer-style` reuse), deduplicated concurrent `ensureContentScript` calls in `popup.js`, and added a main-frame fallback when `allFrames: true` encounters cross-origin iframes (such as embedded YouTube players on `music.david888.com`).
+
 ## 1.8.3 - 2026-10-23
 
 - Fixed Google icons and general icon font display failures across Google properties (Google Search, Gmail, YouTube, Google Drive, Docs, Calendar) and web apps:

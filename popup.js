@@ -69,7 +69,7 @@ const ADVANCED_FONT_CONFIG_KEY = 'advancedFontConfig';
 const FONT_MODE_BASIC = 'basic';
 const FONT_MODE_ADVANCED = 'advanced';
 const PREVIEW_CJK_FONT_FAMILY = 'PopupFontChangerCjk';
-const CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
+const CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FFEF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
 const FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 const hasChrome = typeof chrome !== 'undefined';
@@ -677,6 +677,8 @@ document.addEventListener('DOMContentLoaded', function () {
     ui.statusText.textContent = messages.statusDisabled;
   }
 
+  let ensureInFlightCallbacks = [];
+
   function sendMessageToTab(tabId, payload, callback) {
     if (!hasTabs || !tabId) {
       callback({ ok: false, restricted: false });
@@ -690,10 +692,18 @@ document.addEventListener('DOMContentLoaded', function () {
       }
 
       chrome.tabs.sendMessage(tabId, payload, function (response) {
+        const lastError = chrome.runtime.lastError;
+        const isPortClosedOnChange =
+          lastError &&
+          payload &&
+          payload.action === 'changeFont' &&
+          typeof lastError.message === 'string' &&
+          lastError.message.includes('The message port closed before a response was received');
+
         callback({
-          ok: !chrome.runtime.lastError,
-          restricted: chrome.runtime.lastError
-            ? isRestrictedPageError(chrome.runtime.lastError.message)
+          ok: !lastError || isPortClosedOnChange,
+          restricted: lastError && !isPortClosedOnChange
+            ? isRestrictedPageError(lastError.message)
             : false,
           response: response,
         });
@@ -707,14 +717,26 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
 
+    ensureInFlightCallbacks.push(callback);
+    if (ensureInFlightCallbacks.length > 1) {
+      return;
+    }
+
+    function finishEnsure(result) {
+      const callbacks = ensureInFlightCallbacks.splice(0);
+      callbacks.forEach(function (cb) {
+        cb(result);
+      });
+    }
+
     chrome.tabs.sendMessage(tabId, { action: 'getPageState' }, function () {
       if (!chrome.runtime.lastError) {
-        callback({ ok: true, restricted: false });
+        finishEnsure({ ok: true, restricted: false });
         return;
       }
 
       if (!chrome.scripting || typeof chrome.scripting.executeScript !== 'function') {
-        callback({ ok: false, restricted: false });
+        finishEnsure({ ok: false, restricted: false });
         return;
       }
 
@@ -724,15 +746,29 @@ document.addEventListener('DOMContentLoaded', function () {
           files: ['content.js'],
         },
         function () {
-          if (chrome.runtime.lastError) {
-            callback({
-              ok: false,
-              restricted: isRestrictedPageError(chrome.runtime.lastError.message),
-            });
+          if (!chrome.runtime.lastError) {
+            finishEnsure({ ok: true, restricted: false });
             return;
           }
 
-          callback({ ok: true, restricted: false });
+          // Fallback to main frame only if allFrames failed due to cross-origin subframes
+          chrome.scripting.executeScript(
+            {
+              target: { tabId: tabId },
+              files: ['content.js'],
+            },
+            function () {
+              if (chrome.runtime.lastError) {
+                finishEnsure({
+                  ok: false,
+                  restricted: isRestrictedPageError(chrome.runtime.lastError.message),
+                });
+                return;
+              }
+
+              finishEnsure({ ok: true, restricted: false });
+            }
+          );
         }
       );
     });
@@ -782,11 +818,49 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function buildLocalFontSources(displayName, fontId) {
-    const names = [displayName, fontId]
-      .filter((name) => typeof name === 'string' && name)
-      .filter((name, index, array) => array.indexOf(name) === index);
+    const baseNames = [displayName, fontId]
+      .filter((name) => typeof name === 'string' && name.trim())
+      .map((name) => name.trim());
 
-    return names.map((name) => `local(${JSON.stringify(name)})`).join(', ');
+    const candidates = [];
+    function addCandidate(name) {
+      if (typeof name === 'string' && name && !candidates.includes(name)) {
+        candidates.push(name);
+      }
+    }
+
+    baseNames.forEach(addCandidate);
+
+    baseNames.forEach((base) => {
+      [' Regular', '-Regular', ' Medium', '-Medium', ' Bold', '-Bold', ' Light', '-Light', ' 半糖'].forEach((suffix) => {
+        addCandidate(base + suffix);
+      });
+
+      const compact = base.replace(/[\s_]+/g, '');
+      if (compact) {
+        addCandidate(compact);
+        ['-Regular', '-Medium', '-Bold', '-Light', 'Regular-Regular', 'Regular-Medium'].forEach((suffix) => {
+          addCandidate(compact + suffix);
+        });
+      }
+
+      const asciiPart = base.replace(/[^\x20-\x7E]+/g, '').trim();
+      if (asciiPart) {
+        addCandidate(asciiPart);
+        [' Regular', '-Regular', ' Medium', '-Medium', ' Bold', '-Bold'].forEach((suffix) => {
+          addCandidate(asciiPart + suffix);
+        });
+        const asciiCompact = asciiPart.replace(/[\s_]+/g, '');
+        if (asciiCompact) {
+          addCandidate(asciiCompact);
+          ['-Regular', '-Medium', '-Bold', 'Regular-Regular', 'Regular-Medium'].forEach((suffix) => {
+            addCandidate(asciiCompact + suffix);
+          });
+        }
+      }
+    });
+
+    return candidates.map((name) => `local(${JSON.stringify(name)})`).join(', ');
   }
 
   function getBrowserLocale() {

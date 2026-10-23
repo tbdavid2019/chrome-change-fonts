@@ -1133,7 +1133,57 @@ test('isGoogleSite strictly enforces domain boundaries against spoofed domains',
   assert.equal(sandbox.isGoogleSite(), true);
 });
 
+test('advanced mode generates PostScript and Full Font Name candidates for CJK local() matching', () => {
+  const sandbox = loadContentScript();
+  sandbox.applyFontSettings({
+    fontMode: 'advanced',
+    advancedFontConfig: {
+      cjkFont: '777jf金萱',
+      cjkFontId: '777jf金萱',
+      latinFont: '777monolisa Regular 繁中',
+      latinFontId: '777monolisa Regular',
+    },
+  });
 
+  const css = sandbox.buildCss(false);
+  assert.match(css, /local\("777jf金萱"\)/);
+  assert.match(css, /local\("777jf-Medium"\)/);
+  assert.match(css, /local\("777jf金萱 半糖"\)/);
+  assert.match(css, /U\+FF00-FFEF/);
+});
 
+test('content.js can be re-injected into the same context without SyntaxError and responds to changeFont via sendResponse', () => {
+  const code = fs.readFileSync(path.join(__dirname, 'content.js'), 'utf8');
+  let registeredListener = null;
+  const sandbox = loadContentScript();
+  sandbox.chrome.runtime.onMessage.addListener = (fn) => {
+    registeredListener = fn;
+  };
 
+  // Re-evaluate content.js in the same VM context (simulating chrome.scripting.executeScript re-injection)
+  assert.doesNotThrow(() => {
+    vm.runInContext(code, sandbox);
+  });
+
+  assert.equal(typeof registeredListener, 'function');
+  let callbackResponse = null;
+  registeredListener(
+    {
+      action: 'changeFont',
+      isEnabled: true,
+      fontMode: 'advanced',
+      advancedFontConfig: {
+        cjkFont: '777jf金萱',
+        cjkFontId: '777jf金萱',
+        latinFont: '777monolisa Regular 繁中',
+        latinFontId: '777monolisa Regular',
+      },
+    },
+    {},
+    (res) => {
+      callbackResponse = res;
+    }
+  );
+  assert.equal(Boolean(callbackResponse && callbackResponse.ok), true);
+});
 

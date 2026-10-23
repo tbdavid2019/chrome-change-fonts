@@ -1,10 +1,16 @@
 # Changelog
 
-## 1.8.5 - 2026-10-23
+## 1.8.6 - 2026-10-23
 
 - Restricted both selected fonts in CJK / Latin split mode with complementary `unicode-range` font faces. Removed unrestricted font-family fallbacks so missing Latin glyphs cannot fall back to the selected CJK font, and merged Latin fonts cannot take over CJK text.
 - Routed fullwidth Latin letters and digits to the non-CJK font while preserving CJK punctuation and the original page text. Fullwidth characters retain their original character widths.
 - Matched popup preview font faces and fallback order to page rendering, with regression tests for Unicode coverage, one-font configurations, and preview parity.
+
+## 1.8.5 - 2026-10-23
+
+- Improved icon stylesheet scanning to ignore extension-owned styles and avoid excluding ancestor classes from font replacement.
+- Targeted page-state and site-disable messages at the main frame, and corrected the system-default font selection behavior.
+- Trimmed local font name candidates and guarded shadow-root scanning against missing roots.
 
 ## 1.8.4 - 2026-10-23
 

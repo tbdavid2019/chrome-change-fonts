@@ -275,7 +275,7 @@ test('buildCss covers nested shadow root elements directly', () => {
   assert.match(css, /font-family: "Shadow Sans", system-ui/);
 });
 
-test('advanced mode limits only the CJK font and applies the non-CJK font directly', () => {
+test('advanced mode restricts both selected fonts to separate Unicode ranges', () => {
   const sandbox = loadContentScript();
   sandbox.applyFontSettings({
     fontMode: 'advanced',
@@ -291,16 +291,15 @@ test('advanced mode limits only the CJK font and applies the non-CJK font direct
 
   assert.match(css, /font-family: "FontChangerCjk"/);
   assert.match(css, /src: local\("888Roundhand"\), local\("888Roundhand-Regular"\)/);
-  assert.match(css, /font-family: "FontChangerCjk", "JetBrains Mono", "888Roundhand", "888Roundhand-Regular", system-ui/);
-  assert.doesNotMatch(css, /src: local\("JetBrains Mono"\)/);
-  assert.doesNotMatch(css, /JetBrainsMono-Regular/);
+  assert.match(css, /font-family: "FontChangerCjk", "FontChangerLatin", system-ui/);
+  assert.match(css, /src: local\("JetBrains Mono"\), local\("JetBrainsMono-Regular"\)/);
   assert.match(css, /unicode-range: U\+3000-303F/);
   assert.match(css, /font-weight: 100 900/);
   assert.match(css, /font-style: normal/);
-  assert.equal((css.match(/unicode-range:/g) || []).length, 1);
+  assert.equal((css.match(/unicode-range:/g) || []).length, 2);
 });
 
-test('advanced mode keeps a direct CJK fallback after the non-CJK font', () => {
+test('advanced mode does not leak unrestricted selected fonts into the fallback stack', () => {
   const sandbox = loadContentScript();
   sandbox.applyFontSettings({
     fontMode: 'advanced',
@@ -314,7 +313,8 @@ test('advanced mode keeps a direct CJK fallback after the non-CJK font', () => {
 
   const css = sandbox.buildCss(false);
 
-  assert.match(css, /font-family: "FontChangerCjk", "JetBrains Mono", "jf金萱那堤2\.0", system-ui/);
+  assert.equal(sandbox.getFontStack(), `"FontChangerCjk", "FontChangerLatin", ${sandbox.FALLBACK_STACK}`);
+  assert.doesNotMatch(sandbox.getFontStack(), /jf金萱|JetBrains/);
 });
 
 test('basic mode remains effective after advanced config exists', () => {
@@ -1149,7 +1149,7 @@ test('advanced mode generates PostScript and Full Font Name candidates for CJK l
   assert.match(css, /local\("777jf金萱"\)/);
   assert.match(css, /local\("777jf-Medium"\)/);
   assert.match(css, /local\("777jf金萱 半糖"\)/);
-  assert.match(css, /U\+FF00-FFEF/);
+  assert.match(css, /U\+FF00-FF0F/);
 });
 
 test('content.js can be re-injected into the same context without SyntaxError and responds to changeFont via sendResponse', () => {
@@ -1187,3 +1187,87 @@ test('content.js can be re-injected into the same context without SyntaxError an
   assert.equal(Boolean(callbackResponse && callbackResponse.ok), true);
 });
 
+
+
+function parseUnicodeRanges(value) {
+  return value.split(',').map((range) => {
+    const [start, end] = range.trim().slice(2).split('-').map((part) => parseInt(part, 16));
+    return [start, end === undefined ? start : end];
+  });
+}
+
+function includesCodePoint(ranges, point) {
+  return ranges.some(([start, end]) => point >= start && point <= end);
+}
+
+test('CJK and non-CJK ranges partition Unicode without overlaps or holes', () => {
+  const sandbox = loadContentScript();
+  const cjk = parseUnicodeRanges(sandbox.CJK_UNICODE_RANGE);
+  const latin = parseUnicodeRanges(sandbox.buildNonCjkUnicodeRange());
+  const combined = cjk.concat(latin).sort((a, b) => a[0] - b[0]);
+  let next = 0;
+  for (const [start, end] of combined) {
+    assert.equal(start, next, `overlap or gap at U+${next.toString(16)}`);
+    assert.ok(end >= start);
+    next = end + 1;
+  }
+  assert.equal(next, 0x110000);
+});
+
+test('ASCII and fullwidth letters and numbers use non-CJK while CJK punctuation stays CJK', () => {
+  const sandbox = loadContentScript();
+  const cjk = parseUnicodeRanges(sandbox.CJK_UNICODE_RANGE);
+  const latin = parseUnicodeRanges(sandbox.buildNonCjkUnicodeRange());
+  for (const char of 'META CURSOR React Compiler AI JS 12~7ＭＥＴＡＣＵＲＳＯＲＡＩＪＳ１２７ａｇｅｎｔ') {
+    assert.equal(includesCodePoint(cjk, char.codePointAt(0)), false, char);
+    assert.equal(includesCodePoint(latin, char.codePointAt(0)), true, char);
+  }
+  for (const char of '中文，。！？（）［］「」～　ｶﾅ') {
+    assert.equal(includesCodePoint(cjk, char.codePointAt(0)), true, char);
+    assert.equal(includesCodePoint(latin, char.codePointAt(0)), false, char);
+  }
+});
+
+test('split mode with only one selected font still restricts its Unicode coverage', () => {
+  const sandbox = loadContentScript();
+  for (const config of [{ cjkFont: 'Chinese Family' }, { latinFont: 'Merged Latin Family' }]) {
+    sandbox.applyFontSettings({ fontMode: 'advanced', advancedFontConfig: config });
+    const css = sandbox.buildCompositeFontFaceCss();
+    assert.equal((css.match(/@font-face/g) || []).length, 1);
+    const alias = config.cjkFont ? 'FontChangerCjk' : 'FontChangerLatin';
+    assert.equal(sandbox.getFontStack(), `"${alias}", ${sandbox.FALLBACK_STACK}`);
+    const range = css.match(/unicode-range:\s*([^;]+);/)[1];
+    assert.equal(includesCodePoint(parseUnicodeRanges(range), '中'.codePointAt(0)), Boolean(config.cjkFont));
+    assert.equal(includesCodePoint(parseUnicodeRanges(range), 'M'.codePointAt(0)), Boolean(config.latinFont));
+  }
+});
+
+function loadPopupFontFunctions() {
+  const source = fs.readFileSync(path.join(__dirname, 'popup.js'), 'utf8');
+  const names = ['buildNonCjkUnicodeRange', 'buildRestrictedFontFaceCss', 'buildLocalFontSources',
+    'buildPreviewCompositeCss', 'getAdvancedPreviewFontStack', 'pushFontFamily'];
+  const declarations = names.map((name) => {
+    const match = source.match(new RegExp('^  function ' + name + '\\([^]*?^  }', 'm'));
+    assert.ok(match, name);
+    return match[0];
+  });
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(source.split("document.addEventListener('DOMContentLoaded'")[0] + declarations.join('\n'), sandbox);
+  return sandbox;
+}
+
+test('popup and page generate identical restricted font faces and fallback order', () => {
+  const content = loadContentScript();
+  const popup = loadPopupFontFunctions();
+  for (const config of [
+    { cjkFont: '777jf金萱', cjkFontId: '777jf-Medium', latinFont: 'Merged Latin', latinFontId: 'MergedLatin-Regular' },
+    { cjkFont: 'CJK Only' },
+    { latinFont: 'Latin Only' },
+  ]) {
+    content.applyFontSettings({ fontMode: 'advanced', advancedFontConfig: config });
+    const normalize = (value) => value.replaceAll('PopupFontChanger', 'FontChanger').replace(/\s+/g, ' ').trim();
+    assert.equal(normalize(popup.buildPreviewCompositeCss(config)), normalize(content.buildCompositeFontFaceCss()));
+    assert.equal(normalize(popup.getAdvancedPreviewFontStack(config)), normalize(content.getFontStack()));
+  }
+});

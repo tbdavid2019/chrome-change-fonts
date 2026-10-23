@@ -69,7 +69,8 @@ const ADVANCED_FONT_CONFIG_KEY = 'advancedFontConfig';
 const FONT_MODE_BASIC = 'basic';
 const FONT_MODE_ADVANCED = 'advanced';
 const PREVIEW_CJK_FONT_FAMILY = 'PopupFontChangerCjk';
-const CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FFEF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
+const PREVIEW_LATIN_FONT_FAMILY = 'PopupFontChangerLatin';
+const CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FF0F, U+FF1A-FF20, U+FF3B-FF40, U+FF5B-FFEF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
 const FALLBACK_STACK = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 const hasChrome = typeof chrome !== 'undefined';
@@ -483,6 +484,11 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function setSelectValue(selectElement, value) {
+    if (!value) {
+      selectElement.selectedIndex = 0;
+      selectElement.value = '';
+      return;
+    }
     const options = Array.from(selectElement.options);
     const matchedIndex = options.findIndex(function (option) {
       return option.value === value || option.dataset.fontId === value;
@@ -523,7 +529,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         siteDisableCheckbox.checked = Boolean(result.response && result.response.isSiteDisabled);
         updateStatus(siteDisableCheckbox.checked);
-      }
+      },
+      { frameId: 0 }
     );
   }
 
@@ -545,17 +552,22 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
 
-    sendMessageToTab(activeTab.id, { action: 'getPageState' }, function (result) {
-      if (!result.ok || !result.response) {
-        siteDisableCheckbox.disabled = true;
-        return;
-      }
+    sendMessageToTab(
+      activeTab.id,
+      { action: 'getPageState' },
+      function (result) {
+        if (!result.ok || !result.response) {
+          siteDisableCheckbox.disabled = true;
+          return;
+        }
 
-      siteDisableCheckbox.disabled = false;
-      siteDisableCheckbox.checked = Boolean(result.response.isSiteDisabled);
-      ui.siteBadge.textContent = result.response.host || ui.siteBadge.textContent;
-      updateStatus(siteDisableCheckbox.checked);
-    });
+        siteDisableCheckbox.disabled = false;
+        siteDisableCheckbox.checked = Boolean(result.response.isSiteDisabled);
+        ui.siteBadge.textContent = result.response.host || ui.siteBadge.textContent;
+        updateStatus(siteDisableCheckbox.checked);
+      },
+      { frameId: 0 }
+    );
   }
 
   function syncModeUi() {
@@ -615,19 +627,46 @@ document.addEventListener('DOMContentLoaded', function () {
     ui.previewInput.style.fontFamily = stack;
   }
 
-  function buildPreviewCompositeCss(config) {
-    if (!config.cjkFont) {
-      return '';
+  function buildNonCjkUnicodeRange() {
+    const ranges = CJK_UNICODE_RANGE.split(',').map((range) => {
+      const [start, end] = range.trim().slice(2).split('-').map((value) => parseInt(value, 16));
+      return [start, end === undefined ? start : end];
+    }).sort((a, b) => a[0] - b[0]);
+    const complement = [];
+    let next = 0;
+    for (const [start, end] of ranges) {
+      if (next < start) {
+        complement.push(`U+${next.toString(16).toUpperCase()}-${(start - 1).toString(16).toUpperCase()}`);
+      }
+      next = Math.max(next, end + 1);
     }
+    if (next <= 0x10FFFF) {
+      complement.push(`U+${next.toString(16).toUpperCase()}-10FFFF`);
+    }
+    return complement.join(', ');
+  }
 
+  function buildRestrictedFontFaceCss(family, displayName, fontId, unicodeRange) {
     return `
-@font-face {
-  font-family: ${JSON.stringify(PREVIEW_CJK_FONT_FAMILY)};
-  src: ${buildLocalFontSources(config.cjkFont, config.cjkFontId)};
-  unicode-range: ${CJK_UNICODE_RANGE};
-  font-weight: 100 900;
-  font-style: normal;
-}`;
+      @font-face {
+        font-family: ${JSON.stringify(family)};
+        src: ${buildLocalFontSources(displayName, fontId)};
+        unicode-range: ${unicodeRange};
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+      }`;
+  }
+
+  function buildPreviewCompositeCss(config) {
+    const faces = [];
+    if (config.cjkFont) {
+      faces.push(buildRestrictedFontFaceCss(PREVIEW_CJK_FONT_FAMILY, config.cjkFont, config.cjkFontId, CJK_UNICODE_RANGE));
+    }
+    if (config.latinFont) {
+      faces.push(buildRestrictedFontFaceCss(PREVIEW_LATIN_FONT_FAMILY, config.latinFont, config.latinFontId, buildNonCjkUnicodeRange()));
+    }
+    return faces.join('\n');
   }
 
   function getAdvancedPreviewFontStack(config) {
@@ -636,10 +675,8 @@ document.addEventListener('DOMContentLoaded', function () {
       pushFontFamily(stack, PREVIEW_CJK_FONT_FAMILY);
     }
     if (config.latinFont) {
-      pushFontFamily(stack, config.latinFont);
+      pushFontFamily(stack, PREVIEW_LATIN_FONT_FAMILY);
     }
-    pushFontFamily(stack, config.cjkFont);
-    pushFontFamily(stack, config.cjkFontId);
     stack.push(FALLBACK_STACK);
     return stack.join(', ');
   }
@@ -679,7 +716,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   let ensureInFlightCallbacks = [];
 
-  function sendMessageToTab(tabId, payload, callback) {
+  function sendMessageToTab(tabId, payload, callback, options) {
     if (!hasTabs || !tabId) {
       callback({ ok: false, restricted: false });
       return;
@@ -691,7 +728,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return;
       }
 
-      chrome.tabs.sendMessage(tabId, payload, function (response) {
+      const responseCallback = function (response) {
         const lastError = chrome.runtime.lastError;
         const isPortClosedOnChange =
           lastError &&
@@ -707,7 +744,13 @@ document.addEventListener('DOMContentLoaded', function () {
             : false,
           response: response,
         });
-      });
+      };
+
+      if (options && typeof options === 'object') {
+        chrome.tabs.sendMessage(tabId, payload, options, responseCallback);
+      } else {
+        chrome.tabs.sendMessage(tabId, payload, responseCallback);
+      }
     });
   }
 
@@ -729,7 +772,7 @@ document.addEventListener('DOMContentLoaded', function () {
       });
     }
 
-    chrome.tabs.sendMessage(tabId, { action: 'getPageState' }, function () {
+    chrome.tabs.sendMessage(tabId, { action: 'getPageState' }, { frameId: 0 }, function () {
       if (!chrome.runtime.lastError) {
         finishEnsure({ ok: true, restricted: false });
         return;
@@ -824,8 +867,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const candidates = [];
     function addCandidate(name) {
-      if (typeof name === 'string' && name && !candidates.includes(name)) {
-        candidates.push(name);
+      if (typeof name === 'string') {
+        const trimmed = name.trim();
+        if (trimmed && !candidates.includes(trimmed)) {
+          candidates.push(trimmed);
+        }
       }
     }
 

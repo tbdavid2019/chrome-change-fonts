@@ -17,9 +17,11 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`1.8.4`
+目前版本：`1.8.5`
 
-本次版本修正：
+`1.8.5` 修正 CJK / 英數分流：兩套字體都透過 `unicode-range` 限制字元範圍，移除未限制範圍的中文字體 fallback，避免英數缺字時被中文字體接走，也避免合併字體的中文字形覆蓋 CJK 設定。全形英文字母與數字改走英數字體，中文標點保留 CJK 字體；不改寫網頁原文，因此全形字元仍保留全形寬度。
+
+`1.8.4` 版本修正：
 
 - **修復「CJK / 英數分開」模式失效與分頁套用報錯問題**：
   - 擴充 `@font-face` 的 `local()` 字體名稱匹配候選（自動涵蓋 PostScript 名稱與完整字體名稱，如 `777jf-Medium`、`777jf金萱 半糖`、`-Regular`、`-Medium` 等），解決 macOS Chrome 在 `local()` 僅傳入字體家族名稱時匹配失敗、導致中文字被帶有中文字形的英數字體（如 `777monolisa Regular 繁中`）整碗端走的問題。
@@ -99,7 +101,7 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 - 透過 `chrome.fontSettings` 讀取系統字體清單
 - 透過 content script 將樣式注入目前頁面
 - 使用 `chrome.storage.sync` 保存 `basic` / `advanced` 模式與各自的字體設定，進階設定會保存字體顯示名稱與 `fontId`
-- 進階模式透過 `unicode-range` 的 `@font-face` 將 CJK 字體限制在 CJK 範圍，並以直接 `font-family` 方式套用第二套非 CJK 字體
+- 進階模式透過兩組 `unicode-range` 的 `@font-face` 分別限制 CJK 與非 CJK 字體，缺字時使用系統備用字體
 - 使用網站本身的 `localStorage` 保存每個網站是否停用字體替換
 - content script 已設定 `all_frames`、`match_about_blank`、`match_origin_as_fallback`
 

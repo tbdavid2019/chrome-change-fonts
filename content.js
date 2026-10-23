@@ -7,7 +7,8 @@ var INTERACTIVE_EXCLUDE_SELECTOR = 'button, [role="button"], summary, [data-is-m
 var FONT_MODE_BASIC = 'basic';
 var FONT_MODE_ADVANCED = 'advanced';
 var CJK_FONT_FAMILY = 'FontChangerCjk';
-var CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FFEF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
+var LATIN_FONT_FAMILY = 'FontChangerLatin';
+var CJK_UNICODE_RANGE = 'U+3000-303F, U+3100-312F, U+31A0-31BF, U+3400-4DBF, U+4E00-9FFF, U+F900-FAFF, U+FE30-FE4F, U+FF00-FF0F, U+FF1A-FF20, U+FF3B-FF40, U+FF5B-FFEF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+2F800-2FA1F';
 
 var currentFontFamily = '';
 var currentFontMode = FONT_MODE_BASIC;
@@ -107,10 +108,8 @@ function getFontStack() {
       pushFontFamily(stack, CJK_FONT_FAMILY);
     }
     if (currentAdvancedFontConfig.latinFont) {
-      pushFontFamily(stack, currentAdvancedFontConfig.latinFont);
+      pushFontFamily(stack, LATIN_FONT_FAMILY);
     }
-    pushFontFamily(stack, currentAdvancedFontConfig.cjkFont);
-    pushFontFamily(stack, currentAdvancedFontConfig.cjkFontId);
     stack.push(FALLBACK_STACK);
     return stack.join(', ');
   }
@@ -149,19 +148,48 @@ function shouldUseAdvancedFontMode() {
   );
 }
 
+// Keep each selected font inside its character range, even if it is a merged font.
+function buildNonCjkUnicodeRange() {
+  const ranges = CJK_UNICODE_RANGE.split(',').map((range) => {
+    const [start, end] = range.trim().slice(2).split('-').map((value) => parseInt(value, 16));
+    return [start, end === undefined ? start : end];
+  }).sort((a, b) => a[0] - b[0]);
+  const complement = [];
+  let next = 0;
+  for (const [start, end] of ranges) {
+    if (next < start) {
+      complement.push(`U+${next.toString(16).toUpperCase()}-${(start - 1).toString(16).toUpperCase()}`);
+    }
+    next = Math.max(next, end + 1);
+  }
+  if (next <= 0x10FFFF) {
+    complement.push(`U+${next.toString(16).toUpperCase()}-10FFFF`);
+  }
+  return complement.join(', ');
+}
+
 function buildCompositeFontFaceCss() {
-  if (!shouldUseAdvancedFontMode() || !currentAdvancedFontConfig.cjkFont) {
+  if (!shouldUseAdvancedFontMode()) {
     return '';
   }
 
+  const config = currentAdvancedFontConfig;
+  const faces = [];
+  if (config.cjkFont) {
+    faces.push(buildRestrictedFontFaceCss(CJK_FONT_FAMILY, config.cjkFont, config.cjkFontId, CJK_UNICODE_RANGE));
+  }
+  if (config.latinFont) {
+    faces.push(buildRestrictedFontFaceCss(LATIN_FONT_FAMILY, config.latinFont, config.latinFontId, buildNonCjkUnicodeRange()));
+  }
+  return faces.join('\n');
+}
+
+function buildRestrictedFontFaceCss(family, displayName, fontId, unicodeRange) {
   return `
     @font-face {
-      font-family: ${JSON.stringify(CJK_FONT_FAMILY)};
-      src: ${buildLocalFontSources(
-        currentAdvancedFontConfig.cjkFont,
-        currentAdvancedFontConfig.cjkFontId
-      )};
-      unicode-range: ${CJK_UNICODE_RANGE};
+      font-family: ${JSON.stringify(family)};
+      src: ${buildLocalFontSources(displayName, fontId)};
+      unicode-range: ${unicodeRange};
       font-weight: 100 900;
       font-style: normal;
       font-display: swap;
@@ -175,8 +203,11 @@ function buildLocalFontSources(displayName, fontId) {
 
   const candidates = [];
   function addCandidate(name) {
-    if (typeof name === 'string' && name && !candidates.includes(name)) {
-      candidates.push(name);
+    if (typeof name === 'string') {
+      const trimmed = name.trim();
+      if (trimmed && !candidates.includes(trimmed)) {
+        candidates.push(trimmed);
+      }
     }
   }
 
@@ -800,10 +831,23 @@ function scanStylesheets(root) {
           const families = fontFamily.split(',').map(f => f.replace(/['"]/g, '').trim());
           const hasIconFont = families.some(f => isIconFontName(f) || iconFontFamilies.has(f));
           if (hasIconFont && rule.selectorText) {
-            const regex = /\.([a-zA-Z0-9_-]+)/g;
-            let match;
-            while ((match = regex.exec(rule.selectorText)) !== null) {
-              detectedClasses.add('.' + match[1]);
+            let selector = rule.selectorText;
+            while (selector.includes(':not(')) {
+              const next = selector.replace(/:not\((?:[^)(]+|\([^)(]*\))*\)/g, '');
+              if (next === selector) break;
+              selector = next;
+            }
+            const parts = selector.split(',');
+            for (const part of parts) {
+              const cleanPart = part.replace(/\[[^\]]*\]/g, '').trim();
+              const tokens = cleanPart.split(/[\s>+~]+/).filter(Boolean);
+              const terminal = tokens.length > 0 ? tokens[tokens.length - 1] : '';
+              if (!terminal) continue;
+              const regex = /\.([a-zA-Z0-9_-]+)/g;
+              let match;
+              while ((match = regex.exec(terminal)) !== null) {
+                detectedClasses.add('.' + match[1]);
+              }
             }
           }
         }
@@ -818,6 +862,15 @@ function scanStylesheets(root) {
 
   for (const sheet of sheets) {
     try {
+      const ownerNode = sheet.ownerNode;
+      if (
+        ownerNode &&
+        ownerNode.classList &&
+        (ownerNode.classList.contains('font-changer-style') ||
+          ownerNode.classList.contains('font-changer-pip-font-faces'))
+      ) {
+        continue;
+      }
       const rules = sheet.cssRules || sheet.rules;
       if (rules) {
         processRules(rules);
@@ -908,6 +961,7 @@ function syncAllRoots() {
 
 // 使用 TreeWalker 遍歷 Shadow DOM，效能遠好於 querySelectorAll('*')
 function scanForShadowRoots(rootNode) {
+  if (!rootNode) return;
   const doc = rootNode.nodeType === 9 ? rootNode : (rootNode.ownerDocument || document);
   const walker = doc.createTreeWalker(
     rootNode,

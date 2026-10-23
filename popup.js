@@ -652,7 +652,7 @@ document.addEventListener('DOMContentLoaded', function () {
         font-family: ${JSON.stringify(family)};
         src: ${buildLocalFontSources(displayName, fontId)};
         unicode-range: ${unicodeRange};
-        font-weight: 100 900;
+        font-weight: auto;
         font-style: normal;
         font-display: swap;
       }`;

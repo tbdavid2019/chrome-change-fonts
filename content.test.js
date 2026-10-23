@@ -294,7 +294,7 @@ test('advanced mode restricts both selected fonts to separate Unicode ranges', (
   assert.match(css, /font-family: "FontChangerCjk", "FontChangerLatin", system-ui/);
   assert.match(css, /src: local\("JetBrains Mono"\), local\("JetBrainsMono-Regular"\)/);
   assert.match(css, /unicode-range: U\+3000-303F/);
-  assert.match(css, /font-weight: 100 900/);
+  assert.match(css, /font-weight: auto/);
   assert.match(css, /font-style: normal/);
   assert.equal((css.match(/unicode-range:/g) || []).length, 2);
 });

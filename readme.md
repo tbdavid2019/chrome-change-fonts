@@ -17,7 +17,9 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`1.8.6`
+目前版本：`1.8.7`
+
+`1.8.7` 修正分流模式中固定字重的本機字體無法顯示粗體的問題，並新增 headless Chrome 實際渲染測試，確認粗體和斜體與正常文字的像素結果不同。
 
 `1.8.6` 修正 CJK / 英數分流：兩套字體都透過 `unicode-range` 限制字元範圍，移除未限制範圍的中文字體 fallback，避免英數缺字時被中文字體接走，也避免合併字體的中文字形覆蓋 CJK 設定。全形英文字母與數字改走英數字體，中文標點保留 CJK 字體；不改寫網頁原文，因此全形字元仍保留全形寬度。
 
@@ -129,6 +131,7 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 - `node --check popup.js`
 - `node --check content.js`
 - `node --test content.test.js`
+- `node --test font-rendering.test.js`（需要 Chrome / Chromium；可用 `FONT_CHANGER_CHROME` 指定執行檔，未安裝時跳過）
 
 ## 貢獻
 

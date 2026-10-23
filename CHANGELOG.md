@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.7 - 2026-10-23
+
+- Fixed bold text losing its weight with restricted local fonts: use `font-weight: auto` instead of declaring every selected face supports weights 100–900. Updated both page rendering and popup preview.
+- Added a headless Chrome rendering regression test that loads a local font and checks bold and italic pixels differ from normal text. The browser test skips when Chrome/Chromium is unavailable.
+
 ## 1.8.6 - 2026-10-23
 
 - Restricted both selected fonts in CJK / Latin split mode with complementary `unicode-range` font faces. Removed unrestricted font-family fallbacks so missing Latin glyphs cannot fall back to the selected CJK font, and merged Latin fonts cannot take over CJK text.

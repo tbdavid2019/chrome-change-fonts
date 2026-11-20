@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Website Font Changer 333 改字體",
-  "version": "1.8.8",
+  "version": "2.0.0",
   "description": "Change the font family of any website. Replace webpage fonts with your preferred system font.",
   "permissions": [ "activeTab", "storage", "fontSettings", "scripting" ],
   "action": {
@@ -24,7 +24,7 @@
       "match_about_blank": true,
       "match_origin_as_fallback": true,
       "run_at": "document_start",
-      "js": ["content.js"]
+      "js": ["shared.js", "content.js"]
     }
   ]
 }

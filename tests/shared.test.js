@@ -1,0 +1,190 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const test = require('node:test');
+
+const shared = require('../extension/shared.js');
+
+function parseRanges(value) {
+  return shared.parseUnicodeRangeString(value);
+}
+
+function includesCodePoint(ranges, point) {
+  return ranges.some(([start, end]) => point >= start && point <= end);
+}
+
+test('shared.js can be re-evaluated in the same isolated world without SyntaxError', () => {
+  const code = fs.readFileSync(path.join(__dirname, '../extension/shared.js'), 'utf8');
+  const sandbox = { console, URL, Set };
+  vm.createContext(sandbox);
+  assert.doesNotThrow(() => {
+    vm.runInContext(code, sandbox);
+    vm.runInContext(code, sandbox);
+  });
+  assert.equal(typeof sandbox.FontChangerShared.normalizeSiteKey, 'function');
+});
+
+test('CJK and non-CJK ranges partition Unicode without overlaps or holes', () => {
+  const cjk = parseRanges(shared.CJK_UNICODE_RANGE);
+  const latin = parseRanges(shared.buildNonCjkUnicodeRange());
+  const combined = cjk.concat(latin).sort((a, b) => a[0] - b[0]);
+  let next = 0;
+  for (const [start, end] of combined) {
+    assert.equal(start, next, `overlap or gap at U+${next.toString(16)}`);
+    assert.ok(end >= start);
+    next = end + 1;
+  }
+  assert.equal(next, 0x110000);
+});
+
+test('CJK range covers Chinese, Japanese Kana, Korean Hangul, CJK punctuation, and halfwidth katakana while routing fullwidth ASCII/digits to non-CJK', () => {
+  const cjk = parseRanges(shared.CJK_UNICODE_RANGE);
+  const latin = parseRanges(shared.buildNonCjkUnicodeRange());
+
+  for (const char of '中文あいうえおアイウエオヴヵヶ한글가나다，。！？（）［］「」～　ｶﾅ') {
+    assert.equal(includesCodePoint(cjk, char.codePointAt(0)), true, char);
+    assert.equal(includesCodePoint(latin, char.codePointAt(0)), false, char);
+  }
+
+  for (const char of 'META CURSOR React 12~7ＭＥＴＡＣＵＲＳＯＲ１２７ａｇｅｎｔ') {
+    assert.equal(includesCodePoint(cjk, char.codePointAt(0)), false, char);
+    assert.equal(includesCodePoint(latin, char.codePointAt(0)), true, char);
+  }
+});
+
+test('buildLocalFontCandidates isolates weight/style slots and removes personal hacks', () => {
+  const jx = shared.buildLocalFontCandidates('777jf金萱', '777jf金萱');
+  assert.equal(jx.regular.includes('777jf金萱'), true);
+  assert.equal(jx.regular.includes('777jf-Medium'), true);
+  assert.equal(jx.regular.some((name) => name.includes('半糖')), false);
+  assert.equal(jx.bold.includes('777jf金萱'), false);
+  assert.equal(jx.bold.includes('777jf-Regular'), false);
+  assert.equal(jx.bold.includes('777jf-Bold'), true);
+  assert.equal(jx.italic.includes('777jf-Italic'), true);
+  assert.equal(jx.boldItalic.includes('777jf-BoldItalic'), true);
+
+  const shs = shared.buildLocalFontCandidates('思源黑體 TW', 'Noto Sans CJK TC');
+  assert.equal(shs.regular.includes('TW'), false);
+  assert.equal(shs.bold.includes('TW-Bold'), false);
+  assert.equal(shs.bold.includes('Noto Sans CJK TC Bold'), true);
+});
+
+test('buildRestrictedFontFaceSetCss emits auto base rule and only resolved bold/italic slots', () => {
+  const baseOnly = shared.buildRestrictedFontFaceSetCss(
+    shared.CJK_FONT_FAMILY,
+    'PingFang TC',
+    'PingFang TC',
+    shared.CJK_UNICODE_RANGE,
+    { bold: false, italic: false, boldItalic: false }
+  );
+  assert.equal((baseOnly.match(/@font-face/g) || []).length, 1);
+  assert.match(baseOnly, /font-weight:\s*auto;/);
+  assert.match(baseOnly, /font-style:\s*auto;/);
+
+  const withSlots = shared.buildRestrictedFontFaceSetCss(
+    shared.LATIN_FONT_FAMILY,
+    'Arial',
+    'Arial',
+    'U+0-FF',
+    { bold: true, italic: true, boldItalic: true }
+  );
+  assert.equal((withSlots.match(/@font-face/g) || []).length, 4);
+  assert.match(withSlots, /font-weight:\s*700;\s*font-style:\s*normal;/);
+  assert.match(withSlots, /font-weight:\s*auto;\s*font-style:\s*italic;/);
+  assert.match(withSlots, /font-weight:\s*700;\s*font-style:\s*italic;/);
+});
+
+test('probeLocalFontSlots caches resolved slots per context and handles rejections safely', async () => {
+  const originalFontFace = globalThis.FontFace;
+  let calls = 0;
+  globalThis.FontFace = class FakeFontFace {
+    constructor(_family, src, descriptors) {
+      this.src = src;
+      this.descriptors = descriptors;
+    }
+    load() {
+      calls++;
+      if (this.descriptors.weight === '700' && this.descriptors.style === 'normal') {
+        return Promise.resolve(this);
+      }
+      return Promise.reject(new Error('not found'));
+    }
+  };
+  try {
+    const cache = new Map();
+    const first = await shared.probeLocalFontSlots('Arial', 'Arial', cache);
+    assert.deepEqual(first, { bold: true, italic: false, boldItalic: false });
+    assert.equal(calls, 3);
+    const second = await shared.probeLocalFontSlots('Arial', 'Arial', cache);
+    assert.deepEqual(second, { bold: true, italic: false, boldItalic: false });
+    assert.equal(calls, 3);
+  } finally {
+    globalThis.FontFace = originalFontFace;
+  }
+});
+
+test('getFontStack never falls back to basic font when advanced split dropdowns are both empty', () => {
+  const stack = shared.getFontStack('advanced', 'Basic Font', { cjkFont: '', latinFont: '' });
+  assert.equal(stack, shared.FALLBACK_STACK);
+  assert.doesNotMatch(stack, /Basic Font/);
+});
+
+test('normalizeSiteKey and isRestrictedUrl enforce scheme and CWS boundaries', () => {
+  assert.equal(shared.normalizeSiteKey('https://Example.COM:8443/path'), 'example.com:8443');
+  assert.equal(shared.normalizeSiteKey('http://localhost:3000/app'), 'localhost:3000');
+  assert.equal(shared.normalizeSiteKey('https://example.com:443/'), 'example.com');
+  assert.equal(shared.normalizeSiteKey('file:///Users/test/a.html'), null);
+  assert.equal(shared.normalizeSiteKey('chrome://settings'), null);
+  assert.equal(shared.normalizeSiteKey('about:blank'), null);
+  assert.equal(shared.normalizeSiteKey('null'), null);
+  assert.equal(shared.normalizeSiteKey('https://chromewebstore.google.com/detail/abc'), null);
+  assert.equal(shared.normalizeSiteKey('https://chrome.google.com/webstore/detail/abc'), null);
+  assert.equal(shared.normalizeSiteKey('https://chrome.google.com/webstorex'), 'chrome.google.com');
+  assert.equal(shared.isRestrictedUrl('chrome-extension://abcdef/popup.html'), true);
+});
+
+test('resolveFrameSiteKeys handles multi-hop ancestorOrigins, srcdoc, and referrer fallback', () => {
+  const nested = shared.resolveFrameSiteKeys(
+    { href: 'https://embed.example.org/frame', origin: 'https://embed.example.org' },
+    ['https://mid.example.net', 'https://top.example.com'],
+    ''
+  );
+  assert.equal(nested.ownHost, 'embed.example.org');
+  assert.equal(nested.topHost, 'top.example.com');
+  assert.deepEqual(nested.keys, ['embed.example.org', 'mid.example.net', 'top.example.com']);
+
+  const srcdoc = shared.resolveFrameSiteKeys(
+    { href: 'about:srcdoc', origin: 'http://127.0.0.1:4100' },
+    ['http://127.0.0.1:4100'],
+    ''
+  );
+  assert.equal(srcdoc.ownHost, '127.0.0.1:4100');
+  assert.deepEqual(srcdoc.keys, ['127.0.0.1:4100']);
+
+  const opaqueWithReferrer = shared.resolveFrameSiteKeys(
+    { href: 'about:blank', origin: 'null' },
+    ['null'],
+    'https://parent.example.com/article'
+  );
+  assert.equal(opaqueWithReferrer.topHost, 'parent.example.com');
+  assert.deepEqual(opaqueWithReferrer.keys, ['parent.example.com']);
+});
+
+test('serializeFontFamilyList quotes multi-word and unsafe names while leaving generic keywords bare', () => {
+  assert.equal(
+    shared.serializeFontFamilyList('"FabricMDL2Icons", "Font Awesome 6 Free", sans-serif'),
+    '"FabricMDL2Icons", "Font Awesome 6 Free", sans-serif'
+  );
+  assert.equal(
+    shared.serializeFontFamilyList('Bad}Font;color:red, monospace'),
+    '"Bad}Font;color:red", monospace'
+  );
+});
+
+test('isPurePuaUnicodeRange detects PUA-only FontFace ranges accurately', () => {
+  assert.equal(shared.isPurePuaUnicodeRange('U+E000-F8FF'), true);
+  assert.equal(shared.isPurePuaUnicodeRange('U+E000-E100, U+F0000-F0100'), true);
+  assert.equal(shared.isPurePuaUnicodeRange('U+0-10FFFF'), false);
+  assert.equal(shared.isPurePuaUnicodeRange('U+41-5A, U+E000-E100'), false);
+});

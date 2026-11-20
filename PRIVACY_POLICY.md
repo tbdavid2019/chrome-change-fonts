@@ -1,6 +1,6 @@
 # Privacy Policy / 隱私政策
 
-Last updated: 2026-03-31
+Last updated: 2026-11-20
 
 ## 繁體中文
 
@@ -10,25 +10,30 @@ Last updated: 2026-03-31
 
 ### 1. 我們會收集哪些資料
 
-本擴充套件不會蒐集、儲存或傳送您的個人身份資訊，例如姓名、電子郵件、電話、地址或付款資訊。
+本擴充套件不會蒐集、儲存或傳送您的個人身份資訊，例如姓名、電子郵件、電話、地址或付款資訊，也不會記錄您的瀏覽歷史或網頁內容。
 
-本擴充套件只會在您的瀏覽器內使用以下資料：
+本擴充套件只會在您的瀏覽器內儲存以下設定資料：
 
-- 您選擇的字體名稱
-- 您是否啟用字體替換功能
+- 您選擇的字體名稱、字體模式（單一或分流）與介面語言偏好
+- 您是否啟用全域字體替換功能
+- 您主動透過「此網站不生效」勾選停用的網站主機名稱（以 `siteDisabled:<host>` 鍵儲存）
 
-上述資料會儲存在 Chrome 提供的 `chrome.storage.sync` 中，用來在不同裝置或同一瀏覽器工作階段中保留您的設定。
+上述資料會儲存在瀏覽器提供的 `chrome.storage.sync` 中，用來在不同裝置或同一瀏覽器設定檔中保留您的偏好設定。
+
+**無痕（Incognito）模式原則**：在無痕視窗中，本擴充套件僅會唯讀讀取既有的全域與排除設定；在無痕視窗內切換「此網站不生效」僅會保存在該分頁的暫時記憶體中，關閉分頁即清除，絕不會寫入 `chrome.storage.sync` 或任何本機持久儲存。
 
 ### 2. 權限用途說明
 
-本擴充套件使用以下權限：
+本擴充套件使用以下最小必要權限：
 
 - `fontSettings`
   用於讀取您系統中可用的字體清單，讓您可以在 popup 中選擇字體。
 - `storage`
-  用於儲存您的字體設定與啟用狀態。
+  用於在 `chrome.storage.sync` 儲存與同步您的字體設定、啟用狀態及已勾選排除的網站主機名稱。
 - `activeTab`
-  用於將您選擇的字體樣式套用到目前作用中的分頁。
+  用於讀取目前作用中分頁的網址主機名稱並套用或停用字體樣式。
+- `scripting`
+  用於在擴充套件安裝或剛從彈窗啟用時，針對已開啟且允許腳本執行的分頁動態注入字體替換腳本，無須重新整理整個瀏覽器即可生效。
 
 ### 3. 我們如何使用資料
 
@@ -72,25 +77,30 @@ Last updated: 2026-03-31
 
 ### 1. Information We Collect
 
-This extension does not collect, store, or transmit personally identifiable information such as your name, email address, phone number, home address, or payment details.
+This extension does not collect, store, or transmit personally identifiable information such as your name, email address, phone number, home address, or payment details, nor does it track your browsing history or page contents.
 
-The extension only uses the following information locally in your browser:
+The extension stores only the following preference data within your browser:
 
-- The font name you selected
-- Whether font replacement is enabled
+- Your selected font names, font mode (single or CJK/Latin split), and interface language preference
+- Whether global font replacement is enabled
+- Hostnames of websites you explicitly exclude via "Disable on this site" (stored as `siteDisabled:<host>` keys)
 
-This information is stored in Chrome's `chrome.storage.sync` so your preferences can persist across browser sessions and supported synced environments.
+This information is stored in the browser's `chrome.storage.sync` so your preferences and site exclusions can persist across browser sessions and supported synced profiles.
+
+**Incognito Privacy Guarantee**: In Incognito windows, the extension only performs read-only reads of existing preferences and never writes any setting or site exclusion to `chrome.storage.sync` or persistent local storage. Toggling "Disable on this site" in Incognito stays strictly in volatile per-tab memory and is cleared when the tab closes.
 
 ### 2. Why the Extension Requests Permissions
 
-This extension uses the following permissions:
+This extension requests only the minimum required permissions:
 
 - `fontSettings`
   Used to read the list of fonts available on your system so you can choose one in the popup.
 - `storage`
-  Used to save your selected font and enabled state.
+  Used to store and sync your selected fonts, enabled state, and explicit per-site exclusions.
 - `activeTab`
-  Used to apply your selected font style to the currently active tab.
+  Used to inspect the current active tab's site host and apply or pause your selected font styles on that tab.
+- `scripting`
+  Used to inject the extension's styling scripts into already-open, scriptable tabs when you enable font replacement from the popup, so changes take effect without reloading every tab.
 
 ### 3. How We Use the Information
 

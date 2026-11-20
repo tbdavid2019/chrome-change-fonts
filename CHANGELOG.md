@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.0 - 2026-11-20
+
+- **Packaging isolation & zero-build shared core (`extension/` & `tests/`)**:
+  - Moved all runtime files (`manifest.json`, `shared.js`, `content.js`, `popup.html`, `popup.js`, `images/icon{16,48,128}.png`) into `extension/`, tests into `tests/`, and unreferenced SVG assets into `assets/`, removing `index.html` and web-preview dead code while preserving zero build steps and zero new Chrome permissions.
+  - Extracted `extension/shared.js` as a classic IIFE library shared by `popup.js`, `content.js`, and tests; `ensureContentScript` now reads `content_scripts[0].js` directly from `manifest.json`.
+- **Unpolluted Three-Signal Icon Protection Pipeline**:
+  - Replaced `EXCLUDE_CLASSES` blacklists, English icon word lists, unguarded snake-case matching, and forced `'Google Symbols' !important` overrides with `adoptedStyleSheets` (`sheet.disabled = true/false`) unpolluted computed-style probing, `DOMContentLoaded` + `120ms` initial hold, lazy `@font-face` `data-fc-pending` + `face.load()` holding, and `loadingdone`/`<link>` re-evaluation.
+  - Combined three non-poisoning signals: Signal 1 (PUA characters cleanly separated between host vs `::before`/`::after` pseudo elements), Signal 2 (validated icon font keyword Set + PUA-only `FontFace`s with ASCII `text-transform: none !important` ligature protection), and Signal 3 (Canvas 2D ZWNJ width-collapse ratio `< 0.85` against `monospace`), fixing Google Fonts/Meet/Play, Outlook Fluent/Fabric icons, and preserving `auto_machine` / `u_uuuu_uuuu` underscore words.
+- **Lifecycle, Memory Leak Fixes & Document PiP**:
+  - Added versioned singleton controller cleanup across re-injections, invalidated `chrome.runtime.id` self-teardown, `v1.8.8` legacy attribute/`<style.font-changer-style>` cleanup, synchronous `onMessage` (`return undefined`), and a Dormant/Active state machine with zero active observers when disabled or excluded.
+  - Separated `trackedPipDocuments` from `WeakRef`-backed `WeakMap` `ShadowRoot` tracking, pruned detached hosts and closed-PiP sub-roots, unified debounced mutation observation, recursively copied `@font-face` rules into PiP safely, and fixed `querySelector` unescaped URL injection and cross-realm `CSSStyleSheet` creation.
+- **Split Mode (`CJK / Latin`) & Synced Site Exclusions**:
+  - Expanded `CJK_UNICODE_RANGE` to include Japanese Hiragana/Katakana and Korean Hangul while maintaining strict bilateral isolation (no fallback to `basicFont` when both split selects are empty).
+  - Removed hardcoded personal font names and `chrome.storage.local` probe caches; implemented in-memory 3-slot (`bold`, `italic`, `boldItalic`) `FontFace.load()` probing per context with `>= 3` ASCII prefix extraction (`777jf金萱` preserved, `"思源黑體 TW"` unmangled).
+  - Migrated per-site disable switches lazily on non-Incognito top frames into `chrome.storage.sync` (`siteDisabled:<host>`), enforced multi-hop cross-origin iframe union disables via `location.ancestorOrigins`, and isolated Incognito tabs to zero storage writes with all-frame in-memory overrides.
+  - Made popup startup strictly read-only, preserved unavailable cross-OS synced fonts across language switches, fixed `localhost` badge/tooltips and semantic status colors, and added quota/`lastError` rollback UI.
+
 ## 1.8.8 - 2026-10-24
 
 - Fixed mixed fonts on Disp BBS and similar pages: adjacent surrogate escapes in the Unicode PUA regex formed an unintended range that matched `--`, fullwidth slashes, supplementary Han, emoji, and other ordinary text. Match only the three actual private-use blocks.

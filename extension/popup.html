@@ -9,7 +9,7 @@
       color-scheme: light dark;
       font-family: 'JetBrains Mono', 'Gen Jyuu Gothic', 'Noto Sans TC', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
-      /* david888.com & 2md.aiurl.tw five base colors */
+      /* Palette tokens */
       --saffron: #ffb010;
       --saffron-hover: #f2a600;
       --saffron-light: #fff0cc;
@@ -21,11 +21,8 @@
       --canvas: #fff0cc;
       --ink: #2b251a;
 
-      /* Light Theme (Warm Cream & Bento Canvas) */
+      /* Light Theme */
       --bg-page: var(--canvas);
-      --bg-gradient: radial-gradient(circle at 10% 10%, rgba(255, 176, 16, 0.22), transparent 45%),
-                     radial-gradient(circle at 90% 90%, rgba(23, 50, 77, 0.12), transparent 45%),
-                     var(--canvas);
       --card-bg: var(--warm-cream);
       --card-elevated: #fffefa;
       --card-muted: #fcf4e0;
@@ -73,19 +70,13 @@
       --status-excluded: #8f3511;
 
       --shadow-sm: 0 1px 3px rgba(43, 37, 26, 0.08);
-      --shadow-md: 0 4px 12px rgba(23, 50, 77, 0.08);
-      --shadow-lg: 0 12px 30px rgba(23, 50, 77, 0.14);
-
       --focus-ring: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--border-focus);
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        /* Dark Theme (Deep Navy Command Center) */
+        /* Dark Theme */
         --bg-page: #0c1927;
-        --bg-gradient: radial-gradient(circle at 10% 10%, rgba(255, 176, 16, 0.12), transparent 45%),
-                       radial-gradient(circle at 90% 90%, rgba(124, 194, 255, 0.08), transparent 45%),
-                       #0c1927;
         --card-bg: #13273c;
         --card-elevated: #1b3450;
         --card-muted: #172e47;
@@ -133,9 +124,6 @@
         --status-excluded: #f87171;
 
         --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-        --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
-        --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
-
         --focus-ring: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--border-focus);
       }
     }
@@ -157,29 +145,12 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    /* Extension context: 360px layout. Web context (>480px): centered bento card */
     .app-shell {
       width: 360px;
       max-width: 100%;
       background: var(--card-bg);
       padding: 14px 14px 16px;
       margin: 0 auto;
-    }
-
-    @media (min-width: 480px) {
-      body {
-        min-height: 100vh;
-        padding: 32px 16px 48px;
-        background: var(--bg-gradient);
-      }
-      .app-shell {
-        width: 100%;
-        max-width: 460px;
-        border-radius: 18px;
-        border: 1px solid var(--border-default);
-        box-shadow: var(--shadow-lg);
-        padding: 22px 22px 24px;
-      }
     }
 
     .header-bar {
@@ -271,7 +242,6 @@
       gap: 10px;
     }
 
-    /* Mode switcher tabs */
     .mode-tabs {
       display: flex;
       gap: 4px;
@@ -387,7 +357,6 @@
       margin-top: 2px;
     }
 
-    /* Checkbox toggle rows */
     .toggle-row {
       display: flex;
       align-items: center;
@@ -426,7 +395,7 @@
     }
 
     .site-badge {
-      max-width: 120px;
+      max-width: 140px;
       flex-shrink: 0;
       padding: 3px 8px;
       border-radius: 999px;
@@ -449,7 +418,17 @@
       padding: 2px 0;
     }
 
-    /* Live preview card */
+    .status-text.status-active {
+      color: var(--status-active);
+      font-weight: 600;
+    }
+
+    .status-text.status-excluded,
+    .status-text.status-error {
+      color: var(--status-excluded);
+      font-weight: 600;
+    }
+
     .preview-card {
       background: var(--card-elevated);
       border-radius: 12px;
@@ -505,7 +484,7 @@
       padding: 8px 10px;
       font-size: 17px;
       line-height: 1.55;
-      background: var(--card-elevated);
+      background: var(--preview-bg);
       color: var(--input-text);
       white-space: pre-wrap;
       overflow-wrap: anywhere;
@@ -522,27 +501,6 @@
       min-height: 98px;
       max-height: 170px;
       font-size: 16px;
-    }
-
-    @media (min-width: 480px) {
-      .header-bar h1 {
-        font-size: 18.5px;
-      }
-      .mode-tab {
-        font-size: 13.5px;
-      }
-      label {
-        font-size: 13.5px;
-      }
-      select {
-        font-size: 14px;
-      }
-      .toggle-row label {
-        font-size: 14px;
-      }
-      .status-text {
-        font-size: 13px;
-      }
     }
   </style>
 </head>
@@ -578,7 +536,7 @@
         <label for="advancedLatinSelect" id="advancedLatinLabel">Non-CJK (Latin / numbers / punctuation)</label>
         <select id="advancedLatinSelect"></select>
         <p class="advanced-help" id="advancedHelpText">
-          Single-font and CJK / Latin split settings are saved separately. The active tab controls the page.
+          Single-font and CJK / Latin split preferences apply globally; only site exclusions apply per site.
         </p>
       </section>
 
@@ -609,6 +567,7 @@
     </main>
   </div>
 
+  <script src="shared.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

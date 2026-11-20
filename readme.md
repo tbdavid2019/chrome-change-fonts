@@ -10,16 +10,22 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 - 保留最簡單的單一字體模式，適合大多數使用者
 - 提供 `單一字體` / `CJK / 英數分開` 內部 tab，可分開指定 `CJK（中日韓）` 與 `非 CJK（英數與標點）`
 - 啟用或停用目前分頁的字體替換
-- 針對目前網站設定「不生效」，並記錄在該網站的 `localStorage`
-- 在 popup 內即時預覽字體效果
-- 將設定儲存在 `chrome.storage.sync`
-- 支援一般頁面與多數 iframe 內容
+- 針對目前網站設定「不生效」，透過 `chrome.storage.sync` 的 `siteDisabled:<host>` 跨裝置同步（無痕分頁僅於當次分頁記憶體暫時生效，絕不同步）；多層跨網域 iframe 採任一方停用即停用之聯集規則
+- 在 popup 內即時預覽字體效果（對跨裝置未安裝的同步字體保留唯讀提示）
+- 將全域字體與站點排除設定儲存在 `chrome.storage.sync`
+- 支援一般頁面、Open Shadow DOM、Document Picture-in-Picture 與多數 iframe 內容
 
 ## 版本
 
-目前版本：`1.8.8`
+目前版本：`2.0.0`
 
-`1.8.8` 修正 Disp BBS 等網頁仍混入其他字體的根因：圖示私用區（PUA）正規表示式中的代理碼範圍意外合併，將 `--`、`／`、部分漢字與 emoji 誤判為圖示，進而排除整個文章容器。現在僅匹配三個實際 PUA 區段，並禁止單一文字節點將含有子元素的整個容器排除。新增完整 Unicode 碼位檢查，以及 Chrome 實際使用字體的回歸測試（含 CJK／英數、中文標點、粗斜體、動態內容與圖示保護）。
+`2.0.0` 完成重大架構重整與圖示／字重／同步可靠性全面升級：
+
+- **目錄隔離與共用核心**：將執行期檔案集中於 `extension/`（可直接載入開發或壓縮打包上架 Chrome Web Store），並抽出零建置共用模組 `extension/shared.js` 供彈窗與內容腳本共用。
+- **無污染圖示保護管線**：改採 `adoptedStyleSheets`（同步切換 `sheet.disabled` 讀取真實計算樣式）搭配三重圖示訊號（PUA 碼位、明確圖示字體關鍵字／純 PUA `FontFace` 集合、ASCII 連字 Canvas `monospace` ZWNJ 寬度塌縮檢測）；獨立鎖定 `::before`/`::after` 偽元素圖示並保留元素原本字體，同時修正 `auto_machine`、`u_uuuu_uuuu` 等一般底線文字誤排除問題與 Google Symbols 連字大小寫問題。
+- **完整生命週期與記憶體洩漏防護**：實作 Dormant／Active 狀態機（停用期間零背景觀察器）、單例控制器重注入銷毀、上下文失效自我卸載、`WeakRef` Open Shadow DOM 修剪，以及更安全的 Google Meet Document PiP 字體資源複製與清理。
+- **分流模式日韓補齊與免授權字重探測**：補齊日文假名與韓文諺文至 `CJK_UNICODE_RANGE`；由 `shared.js` 於執行期記憶體探測本機粗／斜／粗斜槽位，移除 `chrome.storage.local` 跨站探測快取與個人字體硬編碼。
+- **站點排除同步與無痕隔離**：從各站 `localStorage` 單次延遲遷移至 `chrome.storage.sync`（無痕視窗零寫入、改以分頁記憶體覆寫），實作 `ancestorOrigins` 多層跨網域 iframe 聯集停用，並改為唯讀啟動彈窗。
 
 `1.8.7` 修正分流模式中固定字重的本機字體無法顯示粗體的問題，並新增 headless Chrome 實際渲染測試，確認粗體和斜體與正常文字的像素結果不同。
 
@@ -75,14 +81,14 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 - Chrome Web Store 或其他受限制頁面
 - 使用 closed shadow DOM、canvas、SVG path 或圖片輸出的文字內容
 
-## 安裝
+## 安裝與打包上架
 
 1. 下載或 clone 這個專案。
 2. 打開 `chrome://extensions/` 或 `brave://extensions/`。
 3. 開啟右上角的「開發者模式」。
-4. 點擊「載入未封裝項目」。
-5. 選擇這個專案資料夾。
-6. 如果已經載入過舊版，請按一次重新整理按鈕，確保 `manifest.json` 的版本更新生效。
+4. 點擊「載入未封裝項目」，選擇專案內的 `extension/` 資料夾（`2.0.0` 起所有執行期檔案已集中於此目錄）。
+5. 如果已經載入過舊版，請按一次重新整理按鈕，確保 `extension/manifest.json` 的版本更新生效。
+6. 若要打包上傳 Chrome Web Store，直接將 `extension/` 資料夾內容壓縮為 `.zip` 即可（不含測試程式或開發文件）。
 
 ## 使用方法
 
@@ -101,39 +107,37 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 技術細節
 
-- 使用 Chrome Extension Manifest V3
+- 使用 Chrome Extension Manifest V3（零額外權限，維持 `activeTab`、`storage`、`fontSettings`、`scripting`）
 - 透過 `chrome.fontSettings` 讀取系統字體清單
-- 透過 content script 將樣式注入目前頁面
-- 使用 `chrome.storage.sync` 保存 `basic` / `advanced` 模式與各自的字體設定，進階設定會保存字體顯示名稱與 `fontId`
-- 進階模式透過兩組 `unicode-range` 的 `@font-face` 分別限制 CJK 與非 CJK 字體，缺字時使用系統備用字體
-- 使用網站本身的 `localStorage` 保存每個網站是否停用字體替換
-- content script 已設定 `all_frames`、`match_about_blank`、`match_origin_as_fallback`
+- 透過 `adoptedStyleSheets`（`CSSStyleSheet`）與 content script 將樣式注入目前頁面，並保護各類網頁圖示與偽元素字體
+- 使用 `chrome.storage.sync` 保存 `basic` / `advanced` 模式、各自字體設定與 `siteDisabled:<host>` 站點排除紀錄
+- 進階模式透過兩組 `unicode-range` 的 `@font-face` 分別限制 CJK（含中文、日文假名、韓文諺文）與非 CJK 字體，並透過執行期記憶體 `FontFace.load()` 探測本機粗／斜／粗斜字重
+- content script 已設定 `all_frames`、`match_about_blank`、`match_origin_as_fallback`，並結合 `location.ancestorOrigins` 實現跨網域 iframe 聯集停用
 
 ## 檔案結構
 
-- `manifest.json`: 擴充套件設定
-- `popup.html`: popup 介面
-- `popup.js`: popup 邏輯與字體選擇
-- `content.js`: 頁面字體注入邏輯
-- `CHANGELOG.md`: 版本異動紀錄
-- `images/`: 圖示
+- `extension/`：Chrome Web Store 發行／載入用純執行期目錄
+  - `manifest.json`：擴充套件設定
+  - `shared.js`：彈窗與內容腳本共用之純函式與常量核心
+  - `popup.html`：彈窗介面
+  - `popup.js`：唯讀彈窗邏輯與字體選擇
+  - `content.js`：生命週期控制器、圖示保護、PiP 與字體注入邏輯
+  - `images/`：擴充套件圖示
+- `tests/`：自動化單元測試與跨平台雙埠真實 Chrome 整合測試
+- `assets/`：非執行期圖示素材
+- `CHANGELOG.md`：版本異動紀錄
 
 ## 開發與驗證
 
 每次修改後，建議至少檢查：
 
-- 重新載入 unpacked extension
-- 在 Chrome 與 Brave 各測一個一般網站
-- 測試一個含有 iframe 的頁面
-- 切換 `單一字體` 與 `CJK / 英數分開` 後確認 popup 預覽與實際頁面一致
-- 驗證切換 `單一字體` / `CJK / 英數分開` tab 時，只有目前模式的設定會顯示並生效
+- 重新載入 `extension/` 未封裝擴充套件
+- 在 Chrome 與 Brave 實測 Google（Fonts / Meet 含 Document PiP / Play）、Outlook、YouTube、GitHub（含 `auto_machine`）、Disp BBS（含 `u_uuuu_uuuu`）、含跨網域 iframe 頁面與無痕分頁
 
-本次已完成的基本檢查：
+自動化檢查與測試指令：
 
-- `node --check popup.js`
-- `node --check content.js`
-- `node --test content.test.js`
-- `node --test font-rendering.test.js`（需要 Chrome / Chromium；可用 `FONT_CHANGER_CHROME` 指定執行檔，未安裝時跳過）
+- `node --check extension/shared.js extension/content.js extension/popup.js`
+- `node --test tests/shared.test.js tests/content.test.js tests/popup.test.js tests/font-rendering.test.js`（真實 Chrome 測試可使用 `FONT_CHANGER_CHROME` 指定執行檔路徑）
 
 ## 貢獻
 

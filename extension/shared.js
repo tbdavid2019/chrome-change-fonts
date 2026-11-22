@@ -15,6 +15,8 @@
 
   var LEGACY_SITE_DISABLE_KEY = 'fontChangerDisabled';
   var SITE_DISABLED_PREFIX = 'siteDisabled:';
+  var SITE_FONT_PREFIX = 'siteFont:';
+  var FEEDBACK_URL = 'https://david888.com/contact';
   var MAX_SYNC_ITEMS = 512;
   var CORE_SYNC_RESERVE = 10;
 
@@ -43,7 +45,11 @@
   var MSG_ACTIONS = Object.freeze({
     GET_PAGE_STATE: 'getPageState',
     SET_TAB_SITE_DISABLED: 'setTabSiteDisabled',
+    SET_TAB_SITE_FONT: 'setTabSiteFont',
     CLEAR_LEGACY_SITE_DISABLE: 'clearLegacySiteDisable',
+    SYNC_TAB_BADGE: 'syncTabBadge',
+    GET_TAB_INCOGNITO_STATE: 'getTabIncognitoState',
+    SYNC_TAB_INCOGNITO_STATE: 'syncTabIncognitoState',
   });
 
   // Only match the three Unicode Private Use Area blocks.
@@ -93,6 +99,36 @@
 
   function siteDisabledKey(siteKey) {
     return SITE_DISABLED_PREFIX + siteKey;
+  }
+
+  function siteFontKey(siteKey) {
+    return SITE_FONT_PREFIX + siteKey;
+  }
+
+  function createSiteFontRule(rule) {
+    var src = rule && typeof rule === 'object' ? rule : {};
+    return {
+      fontMode: normalizeFontMode(src.fontMode),
+      selectedFont: typeof src.selectedFont === 'string' ? src.selectedFont : '',
+      advancedFontConfig: createAdvancedFontConfig(src.advancedFontConfig),
+    };
+  }
+
+  function isSiteFontRuleEmpty(rule) {
+    if (!rule || typeof rule !== 'object') return true;
+    var normalized = createSiteFontRule(rule);
+    if (normalized.fontMode === FONT_MODE_ADVANCED) {
+      var cfg = normalized.advancedFontConfig;
+      return !(cfg.cjkFont || cfg.cjkFontId || cfg.latinFont || cfg.latinFontId);
+    }
+    return !normalized.selectedFont;
+  }
+
+  function resolveEffectiveFontSettings(globalSettings, siteFontRule) {
+    if (siteFontRule && !isSiteFontRuleEmpty(siteFontRule)) {
+      return createSiteFontRule(siteFontRule);
+    }
+    return createSiteFontRule(globalSettings);
   }
 
   function parseUnicodeRangeString(rangeStr) {
@@ -560,6 +596,8 @@
     STORAGE_KEYS: STORAGE_KEYS,
     LEGACY_SITE_DISABLE_KEY: LEGACY_SITE_DISABLE_KEY,
     SITE_DISABLED_PREFIX: SITE_DISABLED_PREFIX,
+    SITE_FONT_PREFIX: SITE_FONT_PREFIX,
+    FEEDBACK_URL: FEEDBACK_URL,
     MAX_SYNC_ITEMS: MAX_SYNC_ITEMS,
     CORE_SYNC_RESERVE: CORE_SYNC_RESERVE,
     CJK_FONT_FAMILY: CJK_FONT_FAMILY,
@@ -575,7 +613,11 @@
     ICON_FONT_NAME_REGEX: ICON_FONT_NAME_REGEX,
     normalizeFontMode: normalizeFontMode,
     createAdvancedFontConfig: createAdvancedFontConfig,
+    createSiteFontRule: createSiteFontRule,
+    isSiteFontRuleEmpty: isSiteFontRuleEmpty,
+    resolveEffectiveFontSettings: resolveEffectiveFontSettings,
     siteDisabledKey: siteDisabledKey,
+    siteFontKey: siteFontKey,
     parseUnicodeRangeString: parseUnicodeRangeString,
     buildNonCjkUnicodeRange: buildNonCjkUnicodeRange,
     isPurePuaUnicodeRange: isPurePuaUnicodeRange,

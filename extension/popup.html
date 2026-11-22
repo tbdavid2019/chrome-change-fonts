@@ -149,7 +149,7 @@
       width: 360px;
       max-width: 100%;
       background: var(--card-bg);
-      padding: 14px 14px 16px;
+      padding: 10px 14px 12px;
       margin: 0 auto;
     }
 
@@ -158,8 +158,8 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
       border-bottom: 1px solid var(--border-subtle);
     }
 
@@ -239,7 +239,77 @@
     main {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 6px;
+    }
+
+    .scope-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .scope-tabs {
+      flex: 1;
+      display: flex;
+      gap: 3px;
+      padding: 2px;
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      background: var(--card-muted);
+      min-width: 0;
+    }
+
+    .scope-tab {
+      flex: 1;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-muted);
+      font-weight: 700;
+      font-size: 12px;
+      padding: 4px 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+      min-height: 26px;
+      transition: all 0.15s ease;
+    }
+
+    .scope-tab[aria-selected="true"] {
+      background: var(--tab-active-bg);
+      color: var(--tab-active-text);
+      border-color: var(--tab-active-border);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .scope-tab:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .scope-tab:focus-visible,
+    .clear-site-btn:focus-visible,
+    .footer-btn:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+
+    .clear-site-btn {
+      flex-shrink: 0;
+      border: 1px solid var(--btn-reset-border);
+      border-radius: 7px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--btn-reset-bg);
+      color: var(--btn-reset-text);
+      min-height: 28px;
+    }
+
+    .clear-site-btn[hidden] {
+      display: none;
     }
 
     .mode-tabs {
@@ -259,11 +329,11 @@
       color: var(--text-muted);
       font-weight: 700;
       font-size: 13px;
-      padding: 7px 8px;
+      padding: 5px 8px;
       white-space: nowrap;
       cursor: pointer;
       transition: all 0.15s ease;
-      min-height: 34px;
+      min-height: 30px;
     }
 
     .mode-tab:hover:not([aria-selected="true"]) {
@@ -295,22 +365,22 @@
       font-size: 13px;
       font-weight: 600;
       display: block;
-      margin-bottom: 5px;
+      margin-bottom: 4px;
       color: var(--text-main);
     }
 
     select {
       width: 100%;
-      padding: 8px 10px;
+      padding: 5px 10px;
       border-radius: 8px;
       border: 1.5px solid var(--input-border);
-      margin-bottom: 8px;
+      margin-bottom: 5px;
       font-size: 13.5px;
       background: var(--input-bg);
       color: var(--input-text);
       font-family: inherit;
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
-      min-height: 38px;
+      min-height: 32px;
     }
 
     select:focus-visible {
@@ -338,30 +408,18 @@
       border-radius: 10px;
       border: 1px solid var(--border-default);
       box-shadow: var(--shadow-sm);
-      padding: 10px;
+      padding: 8px 10px;
     }
 
-    .advanced-panel-description,
-    .advanced-help {
-      margin: 0;
-      font-size: 12px;
-      line-height: 1.45;
-      color: var(--text-muted);
-    }
-
-    .advanced-panel-description {
-      margin-bottom: 8px;
-    }
-
-    .advanced-help {
-      margin-top: 2px;
+    .advanced-panel select:last-of-type {
+      margin-bottom: 0;
     }
 
     .toggle-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      min-height: 30px;
+      min-height: 26px;
     }
 
     .toggle-row label {
@@ -433,7 +491,7 @@
       background: var(--card-elevated);
       border-radius: 12px;
       border: 1.5px solid var(--preview-border);
-      padding: 10px;
+      padding: 8px 10px;
       box-shadow: var(--shadow-sm);
     }
 
@@ -441,7 +499,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 8px;
+      margin-bottom: 5px;
       font-size: 13px;
       font-weight: 700;
       color: var(--text-heading);
@@ -476,14 +534,14 @@
 
     textarea {
       width: 100%;
-      min-height: 120px;
-      max-height: 220px;
+      min-height: 98px;
+      max-height: 150px;
       resize: vertical;
       border: 1.5px solid var(--input-border);
       border-radius: 8px;
-      padding: 8px 10px;
-      font-size: 17px;
-      line-height: 1.55;
+      padding: 7px 10px;
+      font-size: 16.5px;
+      line-height: 1.5;
       background: var(--preview-bg);
       color: var(--input-text);
       white-space: pre-wrap;
@@ -498,9 +556,47 @@
     }
 
     body.advanced-mode textarea {
-      min-height: 98px;
-      max-height: 170px;
-      font-size: 16px;
+      min-height: 66px;
+      max-height: 105px;
+      font-size: 15.5px;
+    }
+
+    .footer-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-top: 2px;
+    }
+
+    .footer-btn {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      padding: 5px 10px;
+      min-height: 28px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      background: var(--card-muted);
+      color: var(--text-heading);
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .footer-btn:hover {
+      background: var(--saffron-light);
+      border-color: var(--border-strong);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .footer-btn:hover {
+        background: var(--card-elevated);
+      }
     }
   </style>
 </head>
@@ -515,6 +611,14 @@
     </header>
 
     <main>
+      <div class="scope-bar">
+        <div class="scope-tabs" role="tablist" aria-label="Rule scope">
+          <button type="button" class="scope-tab" id="globalScopeTab" role="tab" aria-selected="true">Global default</button>
+          <button type="button" class="scope-tab" id="siteScopeTab" role="tab" aria-selected="false">This site only</button>
+        </div>
+        <button type="button" class="clear-site-btn" id="clearSiteFontBtn" hidden>Use global</button>
+      </div>
+
       <div class="mode-tabs" role="tablist" aria-label="Font mode">
         <button type="button" class="mode-tab" id="basicModeTab" role="tab" aria-selected="true" aria-controls="basicSettingsPanel">Single font</button>
         <button type="button" class="mode-tab" id="advancedModeTab" role="tab" aria-selected="false" aria-controls="advancedSettingsPanel">CJK / Latin split</button>
@@ -527,17 +631,11 @@
       </section>
 
       <section class="settings-panel advanced-panel" id="advancedSettingsPanel" role="tabpanel" aria-labelledby="advancedModeTab" hidden>
-        <p class="advanced-panel-description" id="advancedPanelDescription">
-          Use one font for CJK (Chinese, Japanese, Korean) text and punctuation, and another font for non-CJK text.
-        </p>
         <label for="advancedCjkSelect" id="advancedCjkLabel">CJK (Chinese / Japanese / Korean)</label>
         <select id="advancedCjkSelect"></select>
 
         <label for="advancedLatinSelect" id="advancedLatinLabel">Non-CJK (Latin / numbers / punctuation)</label>
         <select id="advancedLatinSelect"></select>
-        <p class="advanced-help" id="advancedHelpText">
-          Single-font and CJK / Latin split preferences apply globally; only site exclusions apply per site.
-        </p>
       </section>
 
       <div class="toggle-row">
@@ -564,6 +662,11 @@
         </div>
         <textarea id="previewInput" spellcheck="false" wrap="soft" aria-label="Font preview text"></textarea>
       </section>
+
+      <div class="footer-actions">
+        <button type="button" class="footer-btn" id="manageSitesBtn">Site rules</button>
+        <a class="footer-btn" id="feedbackBtn" href="https://david888.com/contact" target="_blank" rel="noopener noreferrer">Feedback</a>
+      </div>
     </main>
   </div>
 

@@ -348,9 +348,10 @@ function createFakeDom(options = {}) {
     dispatchEvent(type, ev) {
       dispatchEvent(this, type, ev);
     }
-    triggerLoadingDone() {
+    triggerLoadingDone(extraEvent) {
+      var ev = Object.assign({ type: 'loadingdone' }, extraEvent || {});
       for (const fn of Array.from(fontFaceSetListeners.loadingdone)) {
-        fn({ type: 'loadingdone' });
+        fn(ev);
       }
     }
   }
@@ -492,6 +493,7 @@ function createFakeChrome(options = {}) {
   const syncStore = Object.assign({}, options.syncStorage || {});
   const onChangedListeners = new Set();
   const onMessageListeners = new Set();
+  const sentRuntimeMessages = [];
   let lastError = null;
 
   const chrome = {
@@ -502,6 +504,10 @@ function createFakeChrome(options = {}) {
       id: options.runtimeId !== undefined ? options.runtimeId : 'test-extension-id',
       get lastError() {
         return lastError;
+      },
+      sendMessage(msg, cb) {
+        sentRuntimeMessages.push(msg);
+        if (typeof cb === 'function') cb({ ok: true });
       },
       onMessage: {
         addListener(fn) {
@@ -577,6 +583,9 @@ function createFakeChrome(options = {}) {
       },
     },
     __syncStore: syncStore,
+    __getSentRuntimeMessages() {
+      return sentRuntimeMessages.slice();
+    },
     __getListenerCounts() {
       return {
         onChanged: onChangedListeners.size,

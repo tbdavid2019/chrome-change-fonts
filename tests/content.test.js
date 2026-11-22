@@ -369,3 +369,401 @@ test('Unicode PUA sanity check across all valid code points matches BMP + Planes
   }
   assert.equal(count, 6400 + 65534 + 65534);
 });
+
+test('High-frequency style and large-container class mutations bound traversal and avoid unnecessary sheet.disabled toggles', async () => {
+  const env = loadContentEnvironment({
+    syncStorage: { selectedFont: 'PingFang TC', isEnabled: true },
+  });
+  const doc = env.dom.document;
+  const container = doc.createElement('div');
+  let childReads = 0;
+  for (let i = 0; i < 400; i++) {
+    const p = doc.createElement('p');
+    p.textContent = 'This is a long ordinary paragraph item number ' + i + ' with well over sixty-four characters in total length.';
+    Object.defineProperty(p, 'children', {
+      get() {
+        childReads += 1;
+        return [];
+      },
+    });
+    container.appendChild(p);
+  }
+  doc.body.appendChild(container);
+
+  const sheet = doc.adoptedStyleSheets[0];
+  let disabledWrites = 0;
+  let disabledVal = sheet.disabled;
+  Object.defineProperty(sheet, 'disabled', {
+    get() { return disabledVal; },
+    set(v) {
+      disabledWrites += 1;
+      disabledVal = Boolean(v);
+    },
+  });
+
+  const obs = env.dom.getObserverStats().activeObservers[0];
+  obs.trigger([
+    { type: 'attributes', attributeName: 'style', oldValue: 'transform: translateX(0px)', target: doc.body },
+    { type: 'attributes', attributeName: 'style', oldValue: 'transform: translateX(0px)', target: container },
+    { type: 'attributes', attributeName: 'class', target: doc.body },
+    { type: 'attributes', attributeName: 'class', target: container },
+  ]);
+
+  await new Promise((r) => setTimeout(r, 90));
+  assert.ok(childReads <= 85, `Expected bounded traversal <= 85 child reads, got ${childReads}`);
+  assert.equal(disabledWrites, 0);
+
+  // Even after deferred container rescan settles, pure non-icon prose avoids sheet.disabled toggles.
+  await new Promise((r) => setTimeout(r, 350));
+  assert.equal(disabledWrites, 0);
+});
+
+test('hasPendingWebFont skips unrelated unicode-range slices and repeat loadingdone avoids redundant full scans', async () => {
+  const cyrillicSlice = {
+    family: '"Noto Sans TC"',
+    status: 'unloaded',
+    unicodeRange: 'U+0400-04FF',
+    loadCalls: 0,
+    load() {
+      this.loadCalls += 1;
+      return Promise.resolve(this);
+    },
+  };
+  const latinSlice = {
+    family: '"Noto Sans TC"',
+    status: 'loaded',
+    unicodeRange: 'U+0000-00FF',
+    loadCalls: 0,
+    load() { return Promise.resolve(this); },
+  };
+
+  const env = loadContentEnvironment({
+    syncStorage: { selectedFont: 'PingFang TC', isEnabled: true },
+    fontFaces: [cyrillicSlice, latinSlice],
+  });
+  const doc = env.dom.document;
+  const btn = doc.createElement('button');
+  btn.rawStyle.fontFamily = '"Noto Sans TC", sans-serif';
+  btn.textContent = 'OK';
+  doc.body.appendChild(btn);
+
+  env.controller().classifyElement(btn, doc, true);
+  assert.equal(cyrillicSlice.loadCalls, 0);
+  assert.equal(btn.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
+
+  // First loadingdone for a FontFace schedules one debounced rescan; repeated events for the same FontFace skip rescanning.
+  let bodyQsaCalls = 0;
+  const origBodyQsa = doc.body.querySelectorAll.bind(doc.body);
+  doc.body.querySelectorAll = (sel) => {
+    bodyQsaCalls += 1;
+    return origBodyQsa(sel);
+  };
+
+  doc.triggerLoadingDone({ fontfaces: [latinSlice] });
+  await new Promise((r) => setTimeout(r, 160));
+  assert.equal(bodyQsaCalls, 1);
+
+  doc.triggerLoadingDone({ fontfaces: [latinSlice] });
+  doc.triggerLoadingDone({ fontfaces: [latinSlice] });
+  await new Promise((r) => setTimeout(r, 160));
+  assert.equal(bodyQsaCalls, 1);
+});
+
+test('Re-classifying an unchanged icon performs zero redundant setAttribute/removeAttribute mutations', () => {
+  const env = loadContentEnvironment({
+    syncStorage: { selectedFont: 'Arial', isEnabled: true },
+  });
+  const doc = env.dom.document;
+  const icon = doc.createElement('i');
+  icon.rawStyle.fontFamily = '"TestIcons", sans-serif';
+  icon.textContent = '\uE715';
+  doc.body.appendChild(icon);
+
+  env.controller().classifyElement(icon, doc, true);
+  assert.ok(icon.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT));
+
+  let attrMutations = 0;
+  const origSet = icon.setAttribute.bind(icon);
+  const origRem = icon.removeAttribute.bind(icon);
+  icon.setAttribute = (k, v) => { attrMutations += 1; return origSet(k, v); };
+  icon.removeAttribute = (k) => { attrMutations += 1; return origRem(k); };
+
+  env.controller().classifyElement(icon, doc, true);
+  assert.equal(attrMutations, 0);
+});
+
+test('Long >40-char ligatures, Wingdings runs, and input button values are protected as icons', () => {
+  const env = loadContentEnvironment({
+    syncStorage: { selectedFont: 'PingFang TC', isEnabled: true },
+    measureText(font, text) {
+      if (font.includes('Material Symbols') && text === 'signal_cellular_connected_no_internet_4_bar') {
+        return { width: 24 };
+      }
+      if (font.includes('Material Symbols') && text.includes('\u200C')) {
+        return { width: 400 };
+      }
+      return { width: text.replace(/\u200C/g, '').length * 10 };
+    },
+  });
+  const doc = env.dom.document;
+
+  const longLig = doc.createElement('span');
+  longLig.rawStyle.fontFamily = '"Material Symbols Outlined", sans-serif';
+  longLig.textContent = 'signal_cellular_connected_no_internet_4_bar';
+
+  const wingdings = doc.createElement('span');
+  wingdings.rawStyle.fontFamily = '"Wingdings", sans-serif';
+  wingdings.textContent = 'abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz';
+
+  const inputBtn = doc.createElement('input');
+  inputBtn.setAttribute('type', 'button');
+  inputBtn.setAttribute('value', 'home');
+  inputBtn.rawStyle.fontFamily = '"Material Icons", sans-serif';
+
+  [longLig, wingdings, inputBtn].forEach((el) => doc.body.appendChild(el));
+  env.chrome.storage.sync.set({ selectedFont: 'Noto Sans TC' });
+
+  assert.ok(longLig.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT));
+  assert.equal(longLig.getAttribute(shared.ACTIVE_DOM_ATTRS.ICON_LIGATURE), '1');
+  assert.ok(wingdings.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT));
+  assert.ok(inputBtn.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT));
+  assert.equal(inputBtn.getAttribute(shared.ACTIVE_DOM_ATTRS.ICON_LIGATURE), '1');
+});
+
+test('Ancestor font-affecting style and large-container/body class toggles reclassify descendant icons', async () => {
+  const env = loadContentEnvironment({
+    syncStorage: { selectedFont: 'PingFang TC', isEnabled: true },
+  });
+  const doc = env.dom.document;
+  const wrapper = doc.createElement('div');
+  const childIcon = doc.createElement('span');
+  childIcon.rawStyle.fontFamily = 'Arial, sans-serif';
+  childIcon.textContent = 'home';
+  wrapper.appendChild(childIcon);
+  for (let i = 0; i < 90; i++) {
+    const p = doc.createElement('p');
+    p.textContent = 'Normal paragraph line ' + i + ' exceeding sixty-four characters to simulate prose content.';
+    wrapper.appendChild(p);
+  }
+  doc.body.appendChild(wrapper);
+
+  const obs = env.dom.getObserverStats().activeObservers[0];
+
+  // Font-affecting inline style on large container triggers deferred descendant rescan.
+  wrapper.setAttribute('style', 'font-family: "Material Icons"');
+  childIcon.rawStyle.fontFamily = '"Material Icons", sans-serif';
+  obs.trigger([{ type: 'attributes', attributeName: 'style', oldValue: '', target: wrapper }]);
+  await new Promise((r) => setTimeout(r, 420));
+  assert.ok(childIcon.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT));
+
+  // Body class toggle clears stale icon pinning when descendant reverts to ordinary text font.
+  childIcon.rawStyle.fontFamily = 'Arial, sans-serif';
+  obs.trigger([{ type: 'attributes', attributeName: 'class', target: doc.body }]);
+  await new Promise((r) => setTimeout(r, 420));
+  assert.equal(childIcon.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), false);
+});
+
+test('Second face of same family after timeout triggers rescan and PiP pending elements check own document fonts', async () => {
+  const faceA = { family: '"BrandLig"', status: 'loaded', unicodeRange: 'U+0030-0039', loadCalls: 0, load() { return Promise.resolve(this); } };
+  const faceB = { family: '"BrandLig"', status: 'unloaded', unicodeRange: 'U+0061-007A', loadCalls: 0, load() { this.loadCalls += 1; return Promise.resolve(this); } };
+
+  const env = loadContentEnvironment({
+    syncStorage: { selectedFont: 'Arial', isEnabled: true },
+    fontFaces: [faceA, faceB],
+    measureText(font, text) {
+      if (font.includes('BrandLig') && faceB.status === 'loaded') {
+        if (text === 'badge') return { width: 20 };
+        if (text.includes('\u200C')) return { width: 50 };
+      }
+      return { width: text.replace(/\u200C/g, '').length * 10 };
+    },
+  });
+  const doc = env.dom.document;
+  doc.triggerLoadingDone({ fontfaces: [faceA] });
+
+  const ligEl = doc.createElement('span');
+  ligEl.rawStyle.fontFamily = '"BrandLig", sans-serif';
+  ligEl.textContent = 'badge';
+  doc.body.appendChild(ligEl);
+
+  env.controller().classifyElement(ligEl, doc, true);
+  assert.equal(ligEl.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+
+  // Wait past 500ms pending timeout before faceB finishes loading.
+  await new Promise((r) => setTimeout(r, 540));
+  assert.equal(ligEl.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
+  assert.equal(ligEl.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), false);
+
+  // Now faceB finishes loading -> per-face dedup allows rescan and protects ligEl.
+  faceB.status = 'loaded';
+  doc.triggerLoadingDone({ fontfaces: [faceB] });
+  await new Promise((r) => setTimeout(r, 160));
+  assert.ok(ligEl.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT));
+
+  // PiP pending element must be evaluated against pipDoc.fonts, not main document.fonts.
+  const pipWin = env.dom.createPipWindow();
+  const pipFace = { family: '"PipIcons"', status: 'unloaded', unicodeRange: 'U+0-10FFFF', loadCalls: 0, load() { this.loadCalls += 1; return Promise.resolve(this); } };
+  pipWin.document.fontFaces.push(pipFace);
+  const pipIcon = pipWin.document.createElement('span');
+  pipIcon.rawStyle.fontFamily = '"PipIcons", sans-serif';
+  pipIcon.textContent = 'home';
+  pipWin.document.body.appendChild(pipIcon);
+  env.window.documentPictureInPicture.triggerEnter(pipWin);
+
+  assert.equal(pipIcon.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+  // Unrelated main document loadingdone must NOT strip PiP pending state while pipFace is still unloaded.
+  doc.triggerLoadingDone({ fontfaces: [faceA] });
+  assert.equal(pipIcon.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+});
+
+test('Per-site custom font rule overrides global font, respects exclusion priority, and syncs OFF badge on top frame', () => {
+  const env = loadContentEnvironment({
+    href: 'https://github.com/tbdavid2019',
+    syncStorage: {
+      isEnabled: true,
+      selectedFont: 'Arial',
+      'siteFont:github.com': {
+        fontMode: 'advanced',
+        selectedFont: '',
+        advancedFontConfig: {
+          cjkFont: 'PingFang TC',
+          cjkFontId: 'PingFang TC',
+          latinFont: 'JetBrains Mono',
+          latinFontId: 'JetBrains Mono',
+        },
+      },
+    },
+  });
+
+  assert.equal(env.controller().getState().active, true);
+  assert.equal(env.controller().getState().fontMode, 'advanced');
+  assert.match(env.controller().buildCss(false), /JetBrains Mono/);
+  assert.match(env.controller().buildCss(false), /PingFang TC/);
+
+  // Initial top-frame boot reports isSiteDisabled: false.
+  const badgeMsgs = () => env.chrome.__getSentRuntimeMessages().filter((m) => m.action === shared.MSG_ACTIONS.SYNC_TAB_BADGE);
+  assert.equal(badgeMsgs().at(-1).isSiteDisabled, false);
+
+  // Excluding the site overrides the custom site font and emits isSiteDisabled: true for the OFF badge.
+  env.chrome.storage.sync.set({ 'siteDisabled:github.com': 1 });
+  assert.equal(env.controller().getState().active, false);
+  assert.equal(badgeMsgs().at(-1).isSiteDisabled, true);
+
+  // Removing site exclusion restores custom site font and clears OFF badge; removing site font falls back to global Arial.
+  env.chrome.storage.sync.remove('siteDisabled:github.com');
+  assert.equal(env.controller().getState().active, true);
+  assert.equal(badgeMsgs().at(-1).isSiteDisabled, false);
+
+  env.chrome.storage.sync.remove('siteFont:github.com');
+  assert.equal(env.controller().getState().fontMode, 'basic');
+  assert.equal(env.controller().getState().selectedFont, 'Arial');
+  assert.match(env.controller().buildCss(false), /"Arial"/);
+});
+
+test('Incognito SET_TAB_SITE_FONT applies per-tab custom font without writing sync storage and non-top frames skip badge sync', () => {
+  const incEnv = loadContentEnvironment({
+    href: 'https://docs.example.com/guide',
+    incognito: true,
+    syncStorage: { isEnabled: true, selectedFont: 'Arial' },
+  });
+
+  const res = incEnv.chrome.__triggerMessage({
+    action: shared.MSG_ACTIONS.SET_TAB_SITE_FONT,
+    rule: { fontMode: 'basic', selectedFont: 'Georgia' },
+  });
+  assert.equal(res.returnValue, undefined);
+  assert.equal(incEnv.controller().getState().selectedFont, 'Georgia');
+  assert.equal(incEnv.chrome.__syncStore['siteFont:docs.example.com'], undefined);
+
+  incEnv.chrome.__triggerMessage({
+    action: shared.MSG_ACTIONS.SET_TAB_SITE_FONT,
+    rule: null,
+    clearToInherit: true,
+  });
+  assert.equal(incEnv.controller().getState().selectedFont, 'Arial');
+
+  // Sub-frame must NOT emit SYNC_TAB_BADGE.
+  const subEnv = loadContentEnvironment({
+    href: 'https://embed.example.com/frame',
+    isTopFrame: false,
+    ancestorOrigins: ['https://parent.example.com'],
+    syncStorage: { isEnabled: true, selectedFont: 'Arial', 'siteDisabled:parent.example.com': 1 },
+  });
+  assert.equal(
+    subEnv.chrome.__getSentRuntimeMessages().filter((m) => m.action === shared.MSG_ACTIONS.SYNC_TAB_BADGE).length,
+    0
+  );
+});
+
+test('Incognito Use global suppresses synced site rule, preserves iframe host precedence, and restores badge on bfcache pageshow', async () => {
+  // 1. Top frame in incognito with an existing synced site font rule: clearing to global must override the synced rule.
+  const incTop = loadContentEnvironment({
+    href: 'https://github.com/repo',
+    incognito: true,
+    syncStorage: {
+      isEnabled: true,
+      selectedFont: 'Arial',
+      'siteFont:github.com': { fontMode: 'basic', selectedFont: 'Georgia' },
+    },
+  });
+  assert.equal(incTop.controller().getState().selectedFont, 'Georgia');
+
+  incTop.chrome.__triggerMessage({
+    action: shared.MSG_ACTIONS.SET_TAB_SITE_FONT,
+    host: 'github.com',
+    rule: null,
+    clearToInherit: false,
+  });
+  assert.equal(incTop.controller().getState().selectedFont, 'Arial');
+  assert.equal(incTop.chrome.__syncStore['siteFont:github.com'].selectedFont, 'Georgia');
+
+  // 2. Child iframe with its own saved siteFont keeps precedence over top frame's incognito override.
+  const incChild = loadContentEnvironment({
+    href: 'https://widget.example.org/embed',
+    isTopFrame: false,
+    ancestorOrigins: ['https://github.com'],
+    incognito: true,
+    syncStorage: {
+      isEnabled: true,
+      selectedFont: 'Arial',
+      'siteFont:widget.example.org': { fontMode: 'basic', selectedFont: 'Verdana' },
+    },
+  });
+  incChild.chrome.__triggerMessage({
+    action: shared.MSG_ACTIONS.SET_TAB_SITE_FONT,
+    host: 'github.com',
+    rule: { fontMode: 'basic', selectedFont: 'Courier New' },
+  });
+  assert.equal(incChild.controller().getState().selectedFont, 'Verdana');
+
+  // 3. Inline "all: unset" triggers deferred descendant rescan; persisted pageshow re-syncs OFF badge.
+  const excludedEnv = loadContentEnvironment({
+    href: 'https://excluded.example.com/',
+    syncStorage: { isEnabled: true, selectedFont: 'Arial', 'siteDisabled:excluded.example.com': 1 },
+  });
+  const initialBadges = excludedEnv.chrome.__getSentRuntimeMessages().filter((m) => m.action === shared.MSG_ACTIONS.SYNC_TAB_BADGE);
+  assert.equal(initialBadges.length, 1);
+  excludedEnv.window.dispatchEvent('pageshow', { persisted: true });
+  const afterBfcache = excludedEnv.chrome.__getSentRuntimeMessages().filter((m) => m.action === shared.MSG_ACTIONS.SYNC_TAB_BADGE);
+  assert.equal(afterBfcache.length, 2);
+  assert.equal(afterBfcache[1].isSiteDisabled, true);
+
+  // 4. Container gaining inline "all: unset" reclassifies descendant icon.
+  const allEnv = loadContentEnvironment({
+    syncStorage: { selectedFont: 'Arial', isEnabled: true },
+  });
+  const doc = allEnv.dom.document;
+  const box = doc.createElement('div');
+  const ico = doc.createElement('span');
+  ico.rawStyle.fontFamily = 'Arial, sans-serif';
+  ico.textContent = 'home';
+  box.appendChild(ico);
+  doc.body.appendChild(box);
+  box.setAttribute('style', 'all: unset');
+  ico.rawStyle.fontFamily = '"Material Icons", sans-serif';
+  allEnv.dom.getObserverStats().activeObservers[0].trigger([
+    { type: 'attributes', attributeName: 'style', oldValue: '', target: box },
+  ]);
+  await new Promise((r) => setTimeout(r, 90));
+  assert.ok(ico.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT));
+});

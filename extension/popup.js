@@ -12,11 +12,20 @@
       siteDisableLabel: '此網站不生效',
       siteBadgeUnavailable: '受限頁面',
       statusDisabled: '尚未啟用字體替換。',
+      statusDisabledWithSiteRule: '尚未啟用字體替換（此站已設定專用字體）。',
       statusEnabled: '已啟用：{font}',
       statusEnabledAdvanced: '已啟用：CJK / 英數分開',
+      statusSiteFontEnabled: '此站專用字體：{font}',
+      statusSiteFontEnabledAdvanced: '此站專用：CJK / 英數分開',
       statusSiteDisabled: '此網站已排除，不會套用字體替換。',
       statusIncognitoExcluded: '無痕分頁暫停套用此網站（僅限目前分頁有效）。',
       statusRestrictedGlobalSaved: '此頁面不允許修改樣式；全域設定已儲存並套用於其他網站。',
+      scopeGlobal: '全域預設',
+      scopeSite: '僅此網站',
+      scopeSiteActive: '僅此網站 ★',
+      clearSiteFont: '恢復全域',
+      manageSites: '網站清單',
+      feedback: '意見反應',
       previewTitle: '即時預覽',
       reset: '重設',
       defaultFontOption: '系統預設字體',
@@ -34,10 +43,8 @@
       modeHintAdvanced: '目前是 CJK / 英數分開模式。',
       modeBadgeBasic: '單一字體',
       modeBadgeAdvanced: 'CJK / 英數分開',
-      advancedPanelDescription: 'CJK（中日韓）用一套字體，其餘文字用另一套。',
       advancedCjkLabel: 'CJK（中日韓）',
       advancedLatinLabel: '非 CJK（英數與標點）',
-      advancedHelpText: '單一字體與 CJK / 英數分開設定皆套用至全域，僅單站排除依網站個別生效。',
     },
     en: {
       title: 'Website Font Changer 333',
@@ -47,11 +54,20 @@
       siteDisableLabel: 'Disable on this site',
       siteBadgeUnavailable: 'Restricted',
       statusDisabled: 'Font replacement is disabled.',
+      statusDisabledWithSiteRule: 'Font replacement is disabled (site font saved).',
       statusEnabled: 'Enabled: {font}',
       statusEnabledAdvanced: 'Enabled: CJK / Latin split',
+      statusSiteFontEnabled: 'Site font: {font}',
+      statusSiteFontEnabledAdvanced: 'Site font: CJK / Latin split',
       statusSiteDisabled: 'This site is excluded from font replacement.',
       statusIncognitoExcluded: 'Excluded for this incognito tab only (not synced).',
       statusRestrictedGlobalSaved: 'This page cannot be modified; global preferences remain saved for other sites.',
+      scopeGlobal: 'Global default',
+      scopeSite: 'This site only',
+      scopeSiteActive: 'This site ★',
+      clearSiteFont: 'Use global',
+      manageSites: 'Site list',
+      feedback: 'Feedback',
       previewTitle: 'Live preview',
       reset: 'Reset',
       defaultFontOption: 'System default font',
@@ -69,10 +85,8 @@
       modeHintAdvanced: 'CJK / Latin split mode is active.',
       modeBadgeBasic: 'Single font',
       modeBadgeAdvanced: 'CJK / Latin split',
-      advancedPanelDescription: 'Use one font for CJK text, and another for everything else.',
       advancedCjkLabel: 'CJK (Chinese / Japanese / Korean)',
       advancedLatinLabel: 'Non-CJK (Latin / numbers / punctuation)',
-      advancedHelpText: 'Single-font and CJK / Latin split preferences apply globally; only site exclusions apply per site.',
     },
   };
 
@@ -138,10 +152,13 @@
       advancedModeTab: doc.getElementById('advancedModeTab'),
       basicSettingsPanel: doc.getElementById('basicSettingsPanel'),
       advancedSettingsPanel: doc.getElementById('advancedSettingsPanel'),
-      advancedPanelDescription: doc.getElementById('advancedPanelDescription'),
       advancedCjkLabel: doc.getElementById('advancedCjkLabel'),
       advancedLatinLabel: doc.getElementById('advancedLatinLabel'),
-      advancedHelpText: doc.getElementById('advancedHelpText'),
+      globalScopeTab: doc.getElementById('globalScopeTab'),
+      siteScopeTab: doc.getElementById('siteScopeTab'),
+      clearSiteFontBtn: doc.getElementById('clearSiteFontBtn'),
+      manageSitesBtn: doc.getElementById('manageSitesBtn'),
+      feedbackBtn: doc.getElementById('feedbackBtn'),
     };
     var fontSelect = doc.getElementById('fontSelect');
     var advancedCjkSelect = doc.getElementById('advancedCjkSelect');
@@ -160,9 +177,12 @@
 
     var state = {
       locale: getBrowserLocale(win && win.navigator, chromeApi),
+      editScope: 'global',
       fontMode: shared.FONT_MODE_BASIC,
       selectedFont: '',
       advancedFontConfig: shared.createAdvancedFontConfig(),
+      siteFontRule: null,
+      siteFontDraft: shared.createSiteFontRule(),
       isEnabled: false,
       systemFonts: [],
       tabId: null,
@@ -176,6 +196,27 @@
 
     function getMsgs() {
       return LOCALES[state.locale] || LOCALES.en;
+    }
+
+    function hasActiveSiteFontRule() {
+      return Boolean(!state.restricted && state.siteKey && state.siteFontRule && !shared.isSiteFontRuleEmpty(state.siteFontRule));
+    }
+
+    function getActiveEditConfig() {
+      if (state.editScope === 'site' && !state.restricted && state.siteKey) {
+        return shared.createSiteFontRule(state.siteFontDraft);
+      }
+      return shared.createSiteFontRule({
+        fontMode: state.fontMode,
+        selectedFont: state.selectedFont,
+        advancedFontConfig: state.advancedFontConfig,
+      });
+    }
+
+    function syncSiteDraftFromSaved() {
+      state.siteFontDraft = state.siteFontRule
+        ? shared.createSiteFontRule(state.siteFontRule)
+        : shared.createSiteFontRule();
     }
 
     function getRandomPreviewSample() {
@@ -202,15 +243,35 @@
       siteDisableCheckbox.setAttribute('aria-label', msgs.siteToggleAria);
       ui.basicModeTab.textContent = msgs.modeBadgeBasic;
       ui.advancedModeTab.textContent = msgs.modeBadgeAdvanced;
-      ui.advancedPanelDescription.textContent = msgs.advancedPanelDescription;
       ui.advancedCjkLabel.textContent = msgs.advancedCjkLabel;
       ui.advancedLatinLabel.textContent = msgs.advancedLatinLabel;
-      ui.advancedHelpText.textContent = msgs.advancedHelpText;
+      if (ui.globalScopeTab) ui.globalScopeTab.textContent = msgs.scopeGlobal;
+      if (ui.siteScopeTab) {
+        ui.siteScopeTab.textContent = hasActiveSiteFontRule() ? msgs.scopeSiteActive : msgs.scopeSite;
+        ui.siteScopeTab.disabled = Boolean(state.restricted || !state.siteKey);
+      }
+      if (ui.clearSiteFontBtn) {
+        ui.clearSiteFontBtn.textContent = msgs.clearSiteFont;
+        ui.clearSiteFontBtn.hidden = !hasActiveSiteFontRule();
+      }
+      if (ui.manageSitesBtn) ui.manageSitesBtn.textContent = msgs.manageSites;
+      if (ui.feedbackBtn) {
+        ui.feedbackBtn.textContent = msgs.feedback;
+        if (typeof ui.feedbackBtn.setAttribute === 'function') {
+          ui.feedbackBtn.setAttribute('href', shared.FEEDBACK_URL);
+        }
+      }
     }
 
     function updateModePanelsUi() {
       var msgs = getMsgs();
-      var isAdvanced = state.fontMode === shared.FONT_MODE_ADVANCED;
+      var activeCfg = getActiveEditConfig();
+      var isAdvanced = activeCfg.fontMode === shared.FONT_MODE_ADVANCED;
+      if (ui.globalScopeTab && ui.siteScopeTab) {
+        var isSiteScope = state.editScope === 'site' && !state.restricted && Boolean(state.siteKey);
+        ui.globalScopeTab.setAttribute('aria-selected', String(!isSiteScope));
+        ui.siteScopeTab.setAttribute('aria-selected', String(isSiteScope));
+      }
       ui.basicModeTab.setAttribute('aria-selected', String(!isAdvanced));
       ui.advancedModeTab.setAttribute('aria-selected', String(isAdvanced));
       ui.basicSettingsPanel.hidden = isAdvanced;
@@ -274,16 +335,17 @@
     }
 
     function renderFontSelectors() {
-      populateSelectWithFonts(fontSelect, state.selectedFont, state.selectedFont);
+      var activeCfg = getActiveEditConfig();
+      populateSelectWithFonts(fontSelect, activeCfg.selectedFont, activeCfg.selectedFont);
       populateSelectWithFonts(
         advancedCjkSelect,
-        state.advancedFontConfig.cjkFont || state.advancedFontConfig.cjkFontId,
-        state.advancedFontConfig.cjkFontId
+        activeCfg.advancedFontConfig.cjkFont || activeCfg.advancedFontConfig.cjkFontId,
+        activeCfg.advancedFontConfig.cjkFontId
       );
       populateSelectWithFonts(
         advancedLatinSelect,
-        state.advancedFontConfig.latinFont || state.advancedFontConfig.latinFontId,
-        state.advancedFontConfig.latinFontId
+        activeCfg.advancedFontConfig.latinFont || activeCfg.advancedFontConfig.latinFontId,
+        activeCfg.advancedFontConfig.latinFontId
       );
     }
 
@@ -326,11 +388,26 @@
         return;
       }
       if (!state.isEnabled) {
-        setStatus(msgs.statusDisabled, '');
+        setStatus(
+          hasActiveSiteFontRule() ? msgs.statusDisabledWithSiteRule : msgs.statusDisabled,
+          ''
+        );
         return;
       }
       if (state.restricted) {
         setStatus(msgs.statusRestrictedGlobalSaved, '');
+        return;
+      }
+      if (hasActiveSiteFontRule()) {
+        var siteRule = state.siteFontRule;
+        if (siteRule.fontMode === shared.FONT_MODE_ADVANCED) {
+          setStatus(msgs.statusSiteFontEnabledAdvanced, 'status-active');
+        } else {
+          setStatus(
+            msgs.statusSiteFontEnabled.replace('{font}', siteRule.selectedFont || msgs.defaultFontOption),
+            'status-active'
+          );
+        }
         return;
       }
       if (state.fontMode === shared.FONT_MODE_ADVANCED) {
@@ -342,17 +419,18 @@
     }
 
     function renderPreviewStyles() {
+      var previewCfg = getActiveEditConfig();
       var stack = shared.getFontStack(
-        state.fontMode,
-        state.selectedFont,
-        state.advancedFontConfig,
+        previewCfg.fontMode,
+        previewCfg.selectedFont,
+        previewCfg.advancedFontConfig,
         shared.PREVIEW_CJK_FONT_FAMILY,
         shared.PREVIEW_LATIN_FONT_FAMILY
       );
 
       var faceCss = '';
-      if (state.fontMode === shared.FONT_MODE_ADVANCED) {
-        var cfg = state.advancedFontConfig;
+      if (previewCfg.fontMode === shared.FONT_MODE_ADVANCED) {
+        var cfg = previewCfg.advancedFontConfig;
         if (cfg.cjkFont || cfg.cjkFontId) {
           var cjkSlots = previewSlotCache.get(String(cfg.cjkFont || '') + '\0' + String(cfg.cjkFontId || ''));
           faceCss += shared.buildRestrictedFontFaceSetCss(
@@ -398,8 +476,9 @@
     }
 
     function updatePreviewStyleNodeOnly() {
-      if (state.fontMode !== shared.FONT_MODE_ADVANCED) return;
-      var cfg = state.advancedFontConfig;
+      var previewCfg = getActiveEditConfig();
+      if (previewCfg.fontMode !== shared.FONT_MODE_ADVANCED) return;
+      var cfg = previewCfg.advancedFontConfig;
       var faceCss = '';
       if (cfg.cjkFont || cfg.cjkFontId) {
         var cjkSlots = previewSlotCache.get(String(cfg.cjkFont || '') + '\0' + String(cfg.cjkFontId || ''));
@@ -514,35 +593,206 @@
       );
     }
 
+    function syncPopupActionBadge(isDisabled) {
+      if (!chromeApi || !chromeApi.action || typeof chromeApi.action.setBadgeText !== 'function' ||
+          typeof state.tabId !== 'number') {
+        return;
+      }
+      try {
+        var p = chromeApi.action.setBadgeText({ tabId: state.tabId, text: isDisabled ? 'OFF' : '' });
+        if (p && typeof p.catch === 'function') p.catch(function () {});
+        if (isDisabled) {
+          if (typeof chromeApi.action.setBadgeBackgroundColor === 'function') {
+            var bg = chromeApi.action.setBadgeBackgroundColor({ tabId: state.tabId, color: '#a9471d' });
+            if (bg && typeof bg.catch === 'function') bg.catch(function () {});
+          }
+          if (typeof chromeApi.action.setBadgeTextColor === 'function') {
+            var fg = chromeApi.action.setBadgeTextColor({ tabId: state.tabId, color: '#ffffff' });
+            if (fg && typeof fg.catch === 'function') fg.catch(function () {});
+          }
+        }
+      } catch (_e) {
+        // Ignore badge update errors in non-supporting environments.
+      }
+    }
+
+    function syncIncognitoBackgroundState(payload) {
+      if (!state.incognito || !chromeApi || !chromeApi.runtime ||
+          typeof chromeApi.runtime.sendMessage !== 'function' || typeof state.tabId !== 'number') {
+        return;
+      }
+      try {
+        var req = Object.assign({ action: shared.MSG_ACTIONS.SYNC_TAB_INCOGNITO_STATE, tabId: state.tabId }, payload);
+        var p = chromeApi.runtime.sendMessage(req, function () {
+          if (chromeApi.runtime) void chromeApi.runtime.lastError;
+        });
+        if (p && typeof p.catch === 'function') p.catch(function () {});
+      } catch (_e) {
+        // Ignore if background is absent in tests.
+      }
+    }
+
     function takeStateSnapshot() {
       return {
+        editScope: state.editScope,
         fontMode: state.fontMode,
         selectedFont: state.selectedFont,
         advancedFontConfig: shared.createAdvancedFontConfig(state.advancedFontConfig),
+        siteFontRule: state.siteFontRule ? shared.createSiteFontRule(state.siteFontRule) : null,
+        siteFontDraft: shared.createSiteFontRule(state.siteFontDraft),
         isEnabled: state.isEnabled,
         siteDisabled: state.siteDisabled,
       };
     }
 
     function restoreStateSnapshot(snap) {
+      state.editScope = snap.editScope;
       state.fontMode = snap.fontMode;
       state.selectedFont = snap.selectedFont;
       state.advancedFontConfig = snap.advancedFontConfig;
+      state.siteFontRule = snap.siteFontRule;
+      state.siteFontDraft = snap.siteFontDraft;
       state.isEnabled = snap.isEnabled;
       state.siteDisabled = snap.siteDisabled;
     }
 
-    function readSelectionsIntoState() {
-      state.selectedFont = fontSelect.value || '';
+    function readSelectsIntoConfig(targetMode) {
       var cjkOpt = advancedCjkSelect.selectedOptions && advancedCjkSelect.selectedOptions[0];
       var latinOpt = advancedLatinSelect.selectedOptions && advancedLatinSelect.selectedOptions[0];
-      state.advancedFontConfig = shared.createAdvancedFontConfig({
-        cjkFont: advancedCjkSelect.value || '',
-        cjkFontId: cjkOpt && cjkOpt.dataset ? (cjkOpt.dataset.fontId || '') : '',
-        latinFont: advancedLatinSelect.value || '',
-        latinFontId: latinOpt && latinOpt.dataset ? (latinOpt.dataset.fontId || '') : '',
+      return shared.createSiteFontRule({
+        fontMode: targetMode,
+        selectedFont: fontSelect.value || '',
+        advancedFontConfig: {
+          cjkFont: advancedCjkSelect.value || '',
+          cjkFontId: cjkOpt && cjkOpt.dataset ? (cjkOpt.dataset.fontId || '') : '',
+          latinFont: advancedLatinSelect.value || '',
+          latinFontId: latinOpt && latinOpt.dataset ? (latinOpt.dataset.fontId || '') : '',
+        },
       });
+    }
+
+    function readSelectionsIntoState() {
       state.isEnabled = Boolean(enableCheckbox.checked);
+      if (state.editScope === 'site' && !state.restricted && state.siteKey) {
+        var curMode = state.siteFontDraft ? state.siteFontDraft.fontMode : shared.FONT_MODE_BASIC;
+        state.siteFontDraft = readSelectsIntoConfig(curMode);
+        state.siteFontRule = shared.isSiteFontRuleEmpty(state.siteFontDraft)
+          ? null
+          : shared.createSiteFontRule(state.siteFontDraft);
+        return;
+      }
+      var globalParsed = readSelectsIntoConfig(state.fontMode);
+      state.selectedFont = globalParsed.selectedFont;
+      state.advancedFontConfig = globalParsed.advancedFontConfig;
+    }
+
+    function commitSiteFontChange(prevSnap, clearToInherit) {
+      var msgs = getMsgs();
+      state.lastErrorMsg = '';
+      if (state.restricted || !state.siteKey) {
+        restoreStateSnapshot(prevSnap);
+        renderAllUi();
+        return;
+      }
+
+      var ruleToSave = clearToInherit ? null : state.siteFontRule;
+      var isEmpty = !ruleToSave || shared.isSiteFontRuleEmpty(ruleToSave);
+
+      if (state.incognito) {
+        if (!state.tabId) {
+          restoreStateSnapshot(prevSnap);
+          renderAllUi();
+          return;
+        }
+        if (isEmpty) {
+          state.siteFontRule = null;
+          state.siteFontDraft = shared.createSiteFontRule();
+        }
+        renderAllUi();
+        var msgPayload = {
+          action: shared.MSG_ACTIONS.SET_TAB_SITE_FONT,
+          host: state.siteKey,
+          rule: isEmpty ? null : ruleToSave,
+          clearToInherit: Boolean(clearToInherit),
+        };
+        syncIncognitoBackgroundState({
+          hasSiteFont: true,
+          host: state.siteKey,
+          rule: isEmpty ? null : ruleToSave,
+          clearToInherit: Boolean(clearToInherit),
+        });
+        chromeApi.tabs.sendMessage(state.tabId, msgPayload, function () {
+          if (chromeApi.runtime.lastError) {
+            ensureContentScript(state.tabId, function (ensureRes) {
+              if (!ensureRes || !ensureRes.ok) {
+                restoreStateSnapshot(prevSnap);
+                state.lastErrorMsg = ensureRes && ensureRes.restricted ? msgs.restrictedPageError : msgs.applyError;
+                renderAllUi();
+                return;
+              }
+              chromeApi.tabs.sendMessage(state.tabId, msgPayload, function () {
+                if (chromeApi.runtime.lastError) {
+                  restoreStateSnapshot(prevSnap);
+                  state.lastErrorMsg = msgs.applyError;
+                  renderAllUi();
+                }
+              });
+            });
+          }
+        });
+        return;
+      }
+
+      var syncKey = shared.siteFontKey(state.siteKey);
+      if (isEmpty) {
+        chromeApi.storage.sync.remove(syncKey, function () {
+          if (chromeApi.runtime.lastError) {
+            restoreStateSnapshot(prevSnap);
+            state.lastErrorMsg = msgs.storageWriteError;
+          } else {
+            state.siteFontRule = null;
+          }
+          renderAllUi();
+        });
+        return;
+      }
+
+      chromeApi.storage.sync.get(null, function (allItems) {
+        if (chromeApi.runtime.lastError) {
+          restoreStateSnapshot(prevSnap);
+          state.lastErrorMsg = msgs.storageWriteError;
+          renderAllUi();
+          return;
+        }
+        var keys = Object.keys(allItems || {});
+        var alreadyStored = Boolean(allItems && allItems[syncKey]);
+        if (!alreadyStored && keys.length >= shared.MAX_SYNC_ITEMS - shared.CORE_SYNC_RESERVE) {
+          restoreStateSnapshot(prevSnap);
+          state.lastErrorMsg = msgs.syncQuotaExceededError;
+          renderAllUi();
+          return;
+        }
+        var payload = {};
+        payload[syncKey] = shared.createSiteFontRule(ruleToSave);
+        chromeApi.storage.sync.set(payload, function () {
+          if (chromeApi.runtime.lastError) {
+            var errMsg = chromeApi.runtime.lastError.message || '';
+            restoreStateSnapshot(prevSnap);
+            state.lastErrorMsg = isQuotaError(errMsg) ? msgs.syncQuotaExceededError : msgs.storageWriteError;
+            renderAllUi();
+            return;
+          }
+          renderAllUi();
+          if (state.isEnabled && state.tabId) {
+            ensureContentScript(state.tabId, function (res) {
+              if (res && !res.ok) {
+                state.lastErrorMsg = res.restricted ? msgs.restrictedPageError : msgs.applyError;
+                updateStatusUi();
+              }
+            });
+          }
+        });
+      });
     }
 
     function commitGlobalSettingsChange(prevSnap) {
@@ -591,6 +841,8 @@
           return;
         }
         state.siteDisabled = nextDisabled;
+        syncPopupActionBadge(nextDisabled);
+        syncIncognitoBackgroundState({ hasDisabled: true, isDisabled: nextDisabled });
         updateStatusUi();
         chromeApi.tabs.sendMessage(
           state.tabId,
@@ -652,6 +904,7 @@
               state.lastErrorMsg = isQuotaError(msg) ? msgs.syncQuotaExceededError : msgs.storageWriteError;
             } else {
               state.siteDisabled = true;
+              syncPopupActionBadge(true);
             }
             updateStatusUi();
           });
@@ -666,6 +919,7 @@
             return;
           }
           state.siteDisabled = false;
+          syncPopupActionBadge(false);
           updateStatusUi();
           if (state.tabId) {
             chromeApi.tabs.sendMessage(
@@ -693,7 +947,63 @@
         });
       });
 
+      function bindTabArrowNav(tabA, tabB) {
+        if (!tabA || !tabB) return;
+        [tabA, tabB].forEach(function (tab, idx) {
+          tab.addEventListener('keydown', function (ev) {
+            if (!ev || (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight')) return;
+            var next = idx === 0 ? tabB : tabA;
+            if (next.disabled) return;
+            if (typeof ev.preventDefault === 'function') ev.preventDefault();
+            if (typeof next.focus === 'function') next.focus();
+            if (typeof next.click === 'function') next.click();
+          });
+        });
+      }
+
+      bindTabArrowNav(ui.globalScopeTab, ui.siteScopeTab);
+      bindTabArrowNav(ui.basicModeTab, ui.advancedModeTab);
+
+      if (ui.globalScopeTab) {
+        ui.globalScopeTab.addEventListener('click', function () {
+          if (state.editScope === 'global') return;
+          state.editScope = 'global';
+          renderAllUi();
+        });
+      }
+
+      if (ui.siteScopeTab) {
+        ui.siteScopeTab.addEventListener('click', function () {
+          if (state.restricted || !state.siteKey || state.editScope === 'site') return;
+          state.editScope = 'site';
+          syncSiteDraftFromSaved();
+          renderAllUi();
+        });
+      }
+
+      if (ui.clearSiteFontBtn) {
+        ui.clearSiteFontBtn.addEventListener('click', function () {
+          if (!hasActiveSiteFontRule()) return;
+          var prev = takeStateSnapshot();
+          state.siteFontRule = null;
+          state.siteFontDraft = shared.createSiteFontRule();
+          state.editScope = 'global';
+          // clearToInherit=false ensures Incognito overrides any synced site rule to use global.
+          commitSiteFontChange(prev, false);
+        });
+      }
+
       ui.basicModeTab.addEventListener('click', function () {
+        if (state.editScope === 'site' && !state.restricted && state.siteKey) {
+          if (state.siteFontDraft.fontMode === shared.FONT_MODE_BASIC) return;
+          state.siteFontDraft = Object.assign({}, state.siteFontDraft, { fontMode: shared.FONT_MODE_BASIC });
+          if (state.siteFontRule && state.siteFontRule.fontMode === shared.FONT_MODE_BASIC &&
+              !shared.isSiteFontRuleEmpty(state.siteFontRule)) {
+            syncSiteDraftFromSaved();
+          }
+          renderAllUi();
+          return;
+        }
         if (state.fontMode === shared.FONT_MODE_BASIC) return;
         var prev = takeStateSnapshot();
         state.fontMode = shared.FONT_MODE_BASIC;
@@ -701,24 +1011,45 @@
       });
 
       ui.advancedModeTab.addEventListener('click', function () {
+        if (state.editScope === 'site' && !state.restricted && state.siteKey) {
+          if (state.siteFontDraft.fontMode === shared.FONT_MODE_ADVANCED) return;
+          state.siteFontDraft = Object.assign({}, state.siteFontDraft, { fontMode: shared.FONT_MODE_ADVANCED });
+          if (state.siteFontRule && state.siteFontRule.fontMode === shared.FONT_MODE_ADVANCED &&
+              !shared.isSiteFontRuleEmpty(state.siteFontRule)) {
+            syncSiteDraftFromSaved();
+          }
+          renderAllUi();
+          return;
+        }
         if (state.fontMode === shared.FONT_MODE_ADVANCED) return;
         var prev = takeStateSnapshot();
         state.fontMode = shared.FONT_MODE_ADVANCED;
         commitGlobalSettingsChange(prev);
       });
 
-      [fontSelect, advancedCjkSelect, advancedLatinSelect, enableCheckbox].forEach(function (el) {
+      [fontSelect, advancedCjkSelect, advancedLatinSelect].forEach(function (el) {
         el.addEventListener('change', function () {
           var prev = takeStateSnapshot();
           readSelectionsIntoState();
-          commitGlobalSettingsChange(prev);
+          if (state.editScope === 'site' && !state.restricted && state.siteKey) {
+            commitSiteFontChange(prev, false);
+          } else {
+            commitGlobalSettingsChange(prev);
+          }
         });
+      });
+
+      enableCheckbox.addEventListener('change', function () {
+        var prev = takeStateSnapshot();
+        state.isEnabled = Boolean(enableCheckbox.checked);
+        commitGlobalSettingsChange(prev);
       });
 
       siteDisableCheckbox.addEventListener('change', handleSiteToggleChange);
 
       ui.resetButton.addEventListener('click', function () {
         var prev = takeStateSnapshot();
+        state.editScope = 'global';
         state.selectedFont = '';
         state.fontMode = shared.FONT_MODE_BASIC;
         state.advancedFontConfig = shared.createAdvancedFontConfig();
@@ -726,6 +1057,26 @@
         ui.previewInput.value = getRandomPreviewSample();
         commitGlobalSettingsChange(prev);
       });
+
+      if (ui.manageSitesBtn) {
+        ui.manageSitesBtn.addEventListener('click', function () {
+          if (chromeApi && chromeApi.runtime && typeof chromeApi.runtime.openOptionsPage === 'function') {
+            chromeApi.runtime.openOptionsPage();
+          } else if (chromeApi && chromeApi.tabs && typeof chromeApi.tabs.create === 'function' &&
+              chromeApi.runtime && typeof chromeApi.runtime.getURL === 'function') {
+            chromeApi.tabs.create({ url: chromeApi.runtime.getURL('options.html') });
+          }
+        });
+      }
+
+      if (ui.feedbackBtn) {
+        ui.feedbackBtn.addEventListener('click', function (ev) {
+          if (chromeApi && chromeApi.tabs && typeof chromeApi.tabs.create === 'function') {
+            if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+            chromeApi.tabs.create({ url: shared.FEEDBACK_URL });
+          }
+        });
+      }
     }
 
     function hydrateUi() {
@@ -789,6 +1140,7 @@
         ];
         if (state.siteKey) {
           keys.push(shared.siteDisabledKey(state.siteKey));
+          keys.push(shared.siteFontKey(state.siteKey));
         }
 
         return new Promise(function (resolve) {
@@ -809,6 +1161,12 @@
             state.siteDisabled = Boolean(
               state.siteKey && data[shared.siteDisabledKey(state.siteKey)]
             );
+            var rawSiteRule = state.siteKey ? data[shared.siteFontKey(state.siteKey)] : null;
+            state.siteFontRule = rawSiteRule && !shared.isSiteFontRuleEmpty(rawSiteRule)
+              ? shared.createSiteFontRule(rawSiteRule)
+              : null;
+            syncSiteDraftFromSaved();
+            state.editScope = hasActiveSiteFontRule() && !state.siteDisabled ? 'site' : 'global';
 
             renderAllUi();
 
@@ -819,10 +1177,22 @@
                 { frameId: 0 },
                 function (resp) {
                   if (!chromeApi.runtime.lastError && resp && resp.hasFontChanger) {
+                    var changed = false;
                     if (state.incognito && typeof resp.tabIncognitoOverride === 'boolean') {
                       state.siteDisabled = resp.tabIncognitoOverride;
-                      updateSiteBadgeUi();
-                      updateStatusUi();
+                      syncPopupActionBadge(state.siteDisabled);
+                      changed = true;
+                    }
+                    if (state.incognito && resp.hasTabIncognitoSiteFontOverride) {
+                      state.siteFontRule = resp.tabIncognitoSiteFontOverride
+                        ? shared.createSiteFontRule(resp.tabIncognitoSiteFontOverride)
+                        : null;
+                      syncSiteDraftFromSaved();
+                      state.editScope = hasActiveSiteFontRule() && !state.siteDisabled ? 'site' : 'global';
+                      changed = true;
+                    }
+                    if (changed) {
+                      renderAllUi();
                     }
                     resolve();
                     return;

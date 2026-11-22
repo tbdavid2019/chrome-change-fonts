@@ -188,3 +188,26 @@ test('isPurePuaUnicodeRange detects PUA-only FontFace ranges accurately', () => 
   assert.equal(shared.isPurePuaUnicodeRange('U+0-10FFFF'), false);
   assert.equal(shared.isPurePuaUnicodeRange('U+41-5A, U+E000-E100'), false);
 });
+
+test('siteFontRule helpers normalize, detect emptiness, resolve precedence, and expose feedback URL', () => {
+  assert.equal(shared.FEEDBACK_URL, 'https://david888.com/contact');
+  assert.equal(shared.siteFontKey('github.com'), 'siteFont:github.com');
+
+  const emptyBasic = shared.createSiteFontRule({ fontMode: 'basic', selectedFont: '' });
+  assert.equal(shared.isSiteFontRuleEmpty(emptyBasic), true);
+
+  const splitRule = shared.createSiteFontRule({
+    fontMode: 'advanced',
+    advancedFontConfig: { cjkFont: 'PingFang TC', latinFont: 'Inter' },
+  });
+  assert.equal(shared.isSiteFontRuleEmpty(splitRule), false);
+
+  const globalCfg = { fontMode: 'basic', selectedFont: 'Arial', advancedFontConfig: {} };
+  const resolvedOverride = shared.resolveEffectiveFontSettings(globalCfg, splitRule);
+  assert.equal(resolvedOverride.fontMode, 'advanced');
+  assert.equal(resolvedOverride.advancedFontConfig.cjkFont, 'PingFang TC');
+
+  const resolvedFallback = shared.resolveEffectiveFontSettings(globalCfg, emptyBasic);
+  assert.equal(resolvedFallback.fontMode, 'basic');
+  assert.equal(resolvedFallback.selectedFont, 'Arial');
+});

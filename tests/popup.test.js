@@ -12,6 +12,9 @@ function createPopupHarness(options = {}) {
     syncRemove: [],
     sendMessage: [],
     executeScript: [],
+    tabsCreate: [],
+    openOptionsPage: 0,
+    badgeCalls: [],
   };
   let lastError = null;
 
@@ -101,8 +104,9 @@ function createPopupHarness(options = {}) {
     'languageToggle', 'headingText', 'fontLabel', 'fontSelect', 'toggleLabelText',
     'siteDisableLabelText', 'siteBadge', 'statusText', 'previewTitle', 'previewInput',
     'resetButton', 'modeHintText', 'basicModeTab', 'advancedModeTab', 'basicSettingsPanel',
-    'advancedSettingsPanel', 'advancedPanelDescription', 'advancedCjkLabel', 'advancedLatinLabel',
-    'advancedHelpText', 'advancedCjkSelect', 'advancedLatinSelect', 'enableCheckbox', 'siteDisableCheckbox',
+    'advancedSettingsPanel', 'advancedCjkLabel', 'advancedLatinLabel',
+    'advancedCjkSelect', 'advancedLatinSelect', 'enableCheckbox', 'siteDisableCheckbox',
+    'globalScopeTab', 'siteScopeTab', 'clearSiteFontBtn', 'manageSitesBtn', 'feedbackBtn',
   ];
 
   const byId = new Map();
@@ -148,8 +152,26 @@ function createPopupHarness(options = {}) {
           content_scripts: [{ js: ['shared.js', 'content.js'] }],
         };
       },
+      openOptionsPage() {
+        calls.openOptionsPage += 1;
+      },
+    },
+    action: {
+      setBadgeText(details) {
+        calls.badgeCalls.push(details);
+        return Promise.resolve();
+      },
+      setBadgeBackgroundColor() {
+        return Promise.resolve();
+      },
+      setBadgeTextColor() {
+        return Promise.resolve();
+      },
     },
     tabs: {
+      create(details) {
+        calls.tabsCreate.push(details);
+      },
       query(_q, cb) {
         cb([
           options.activeTab || {
@@ -419,4 +441,92 @@ test('ensureContentScript reads manifest content_scripts[0].js for both allFrame
   assert.equal(h.calls.executeScript[0].target.allFrames, true);
   assert.deepEqual(h.calls.executeScript[1].files, ['shared.js', 'content.js']);
   assert.equal(h.calls.executeScript[1].target.allFrames, undefined);
+});
+
+test('Popup site scope saves/clears per-site font rules, updates OFF badge, and exposes site list + feedback links', async () => {
+  const h = createPopupHarness({
+    syncStorage: { uiLanguage: 'en', isEnabled: true, selectedFont: 'Arial' },
+  });
+  await h.controller.ready;
+
+  // Switch to This site only scope and set a per-site font.
+  h.byId.get('siteScopeTab').dispatch('click');
+  const fontSelect = h.byId.get('fontSelect');
+  const notoOpt = fontSelect.options.find((o) => o.value === 'Noto Sans TC');
+  fontSelect.selectedIndex = fontSelect.options.indexOf(notoOpt);
+  fontSelect.value = 'Noto Sans TC';
+  fontSelect.dispatch('change');
+
+  assert.equal(h.syncStore['siteFont:example.com'].fontMode, 'basic');
+  assert.equal(h.syncStore['siteFont:example.com'].selectedFont, 'Noto Sans TC');
+  assert.equal(h.byId.get('clearSiteFontBtn').hidden, false);
+
+  // Clear per-site font back to global.
+  h.byId.get('clearSiteFontBtn').dispatch('click');
+  assert.equal(h.syncStore['siteFont:example.com'], undefined);
+  assert.equal(h.byId.get('clearSiteFontBtn').hidden, true);
+
+  // Exclude site -> OFF badge set; unexclude -> badge cleared.
+  const siteCb = h.byId.get('siteDisableCheckbox');
+  siteCb.checked = true;
+  siteCb.dispatch('change');
+  assert.deepEqual(h.calls.badgeCalls.at(-1), { tabId: 42, text: 'OFF' });
+
+  siteCb.checked = false;
+  siteCb.dispatch('change');
+  assert.deepEqual(h.calls.badgeCalls.at(-1), { tabId: 42, text: '' });
+
+  // Open Site rules options page & Feedback page (david888.com/contact).
+  h.byId.get('manageSitesBtn').dispatch('click');
+  assert.equal(h.calls.openOptionsPage, 1);
+
+  h.byId.get('feedbackBtn').dispatch('click');
+  assert.deepEqual(h.calls.tabsCreate.at(-1), { url: 'https://david888.com/contact' });
+});
+
+test('Popup preserves saved site rule while switching to unconfigured mode draft and incognito Use global bypasses synced rule', async () => {
+  const h = createPopupHarness({
+    syncStorage: {
+      uiLanguage: 'en',
+      isEnabled: true,
+      selectedFont: 'Arial',
+      'siteFont:example.com': { fontMode: 'basic', selectedFont: 'Noto Sans TC' },
+    },
+  });
+  await h.controller.ready;
+
+  // Starts in 'site' scope with active basic rule.
+  assert.equal(h.byId.get('clearSiteFontBtn').hidden, false);
+  assert.match(h.byId.get('statusText').textContent, /Site font: Noto Sans TC/);
+
+  // Switching to advanced tab in 'site' scope must keep saved rule active and clear button visible until user picks a font.
+  h.byId.get('advancedModeTab').dispatch('click');
+  assert.equal(h.syncStore['siteFont:example.com'].fontMode, 'basic');
+  assert.equal(h.syncStore['siteFont:example.com'].selectedFont, 'Noto Sans TC');
+  assert.equal(h.byId.get('clearSiteFontBtn').hidden, false);
+  assert.match(h.byId.get('statusText').textContent, /Site font: Noto Sans TC/);
+
+  // Incognito Use global sends clearToInherit: false with host so content script overrides any synced site rule.
+  const incMessages = [];
+  const incH = createPopupHarness({
+    activeTab: { id: 88, url: 'https://example.com/page', incognito: true },
+    syncStorage: {
+      uiLanguage: 'en',
+      isEnabled: true,
+      selectedFont: 'Arial',
+      'siteFont:example.com': { fontMode: 'basic', selectedFont: 'Noto Sans TC' },
+    },
+    sendMessageHandler(_tabId, msg) {
+      incMessages.push(msg);
+      return { ok: true, hasFontChanger: true };
+    },
+  });
+  await incH.controller.ready;
+
+  incH.byId.get('clearSiteFontBtn').dispatch('click');
+  const clearMsg = incMessages.find((m) => m.action === shared.MSG_ACTIONS.SET_TAB_SITE_FONT);
+  assert.ok(clearMsg);
+  assert.equal(clearMsg.host, 'example.com');
+  assert.equal(clearMsg.rule, null);
+  assert.equal(clearMsg.clearToInherit, false);
 });

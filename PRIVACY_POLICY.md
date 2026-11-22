@@ -1,6 +1,6 @@
 # Privacy Policy / 隱私政策
 
-Last updated: 2026-11-20
+Last updated: 2026-11-22
 
 ## 繁體中文
 
@@ -17,6 +17,7 @@ Last updated: 2026-11-20
 - 您選擇的字體名稱、字體模式（單一或分流）與介面語言偏好
 - 您是否啟用全域字體替換功能
 - 您主動透過「此網站不生效」勾選停用的網站主機名稱（以 `siteDisabled:<host>` 鍵儲存）
+- 您主動為特定網站指定的專用字體設定（以 `siteFont:<host>` 鍵儲存）
 
 上述資料會儲存在瀏覽器提供的 `chrome.storage.sync` 中，用來在不同裝置或同一瀏覽器設定檔中保留您的偏好設定。
 
@@ -84,6 +85,7 @@ The extension stores only the following preference data within your browser:
 - Your selected font names, font mode (single or CJK/Latin split), and interface language preference
 - Whether global font replacement is enabled
 - Hostnames of websites you explicitly exclude via "Disable on this site" (stored as `siteDisabled:<host>` keys)
+- Per-site custom font preferences you explicitly configure for specific hostnames (stored as `siteFont:<host>` keys)
 
 This information is stored in the browser's `chrome.storage.sync` so your preferences and site exclusions can persist across browser sessions and supported synced profiles.
 

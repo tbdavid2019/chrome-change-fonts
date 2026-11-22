@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.0 - 2026-11-22
+
+- **Per-Site Custom Fonts (`siteFont:<host>`)**:
+  - Added per-site font override support in both `Single font` and `CJK / Latin split` modes via the new scope switcher (`Global default` / `This site only`) in `extension/popup.html` / `extension/popup.js` and `extension/content.js`, with keyboard arrow navigation, draft/saved mode isolation, per-tab volatile Incognito overrides (`background.js` + `SET_TAB_SITE_FONT`) surviving reloads/subframes, and site-exclusion priority.
+- **Chrome Icon `OFF` Badge (`extension/background.js`)**:
+  - Added a lightweight MV3 service worker (`extension/background.js`) with zero new permissions; top-frame `content.js` (including bfcache `pageshow` restores) and `popup.js` sync `OFF` badge status (`#a9471d` background, `#ffffff` text) onto the Chrome toolbar icon whenever the active site is excluded (`siteDisabled:*` or Incognito tab override).
+- **Site Rules & Exclusions Management Page (`extension/options.html`, `extension/options.js`)**:
+  - Added a dedicated management page (`options_ui` with `open_in_tab: true`, reachable from `Site list` in the popup) to search, add, edit (including `host:port` / IPv6 keys, race-safe rename cleanup, and unavailable font ID preservation across locale switches), remove, and clear all excluded sites (`siteDisabled:*`) and per-site custom font rules (`siteFont:*`), with live `chrome.storage.onChanged` synchronization and sync quota reporting.
+- **Feedback Link (`https://david888.com/contact`)**:
+  - Added direct `Feedback` links/buttons in both the popup footer and the Site Rules Manager header routing to `https://david888.com/contact`.
+- **Popup Layout & CPU/Style-Recalc Fixes (folded from 2.0.1)**:
+  - Removed redundant description/help text inside the `CJK / Latin split` panel and tightened spacing so the popup stays comfortably within Chrome's 600px height limit.
+  - Bounded attribute mutation subtree scanning, added read-only pre-filtering before `sheet.disabled` toggling, single-pass `document.fonts` indexing, `unicode-range`-filtered WebFont probing, per-face `loadingdone` deduplication, and `ownerDocument`-grouped pending retries.
+
 ## 2.0.0 - 2026-11-20
 
 - **Packaging isolation & zero-build shared core (`extension/` & `tests/`)**:

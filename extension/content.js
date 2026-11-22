@@ -35,13 +35,20 @@
     'BR', 'HR', 'IMG', 'VIDEO', 'AUDIO', 'CANVAS', 'SOURCE', 'TRACK', 'IFRAME',
     'OBJECT', 'EMBED', 'PARAM', 'MAP', 'AREA',
   ]);
-  var ASCII_LIGATURE_REGEX = /^(?=.*[a-zA-Z0-9])[a-zA-Z0-9_-]{2,40}$/;
+  var ASCII_LIGATURE_REGEX = /^(?=.*[a-zA-Z0-9])[a-zA-Z0-9_-]{2,64}$/;
   var BRAND_LIGATURE_REGEX = /^google_logo(?:\s+play)?$/i;
+  var STYLE_FONT_OR_VAR_REGEX = /(?:font|--|\ball\s*:)/i;
+  var PROSE_BLOCK_TAGS = new Set(['P', 'BLOCKQUOTE', 'ARTICLE', 'PRE', 'LI', 'TD', 'TH', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
   var INITIAL_HOLD_CAP_MS = 120;
   var PENDING_FONT_TIMEOUT_MS = 500;
   var OBSERVER_DEBOUNCE_MS = 60;
   var OBSERVER_MAX_WAIT_MS = 250;
   var OBSERVER_BATCH_CAP = 500;
+  var MAX_ATTR_SUBTREE_ELEMENTS = 80;
+  var MAX_UNICODE_RANGE_CACHE = 256;
+  var FONT_RESCAN_DEBOUNCE_MS = 120;
+  var DEFERRED_CONTAINER_DEBOUNCE_MS = 350;
+  var DEFERRED_CONTAINER_MAX_WAIT_MS = 1000;
 
   var IS_INCOGNITO = Boolean(chrome.extension && chrome.extension.inIncognitoContext);
   var IS_TOP_FRAME = (function () {
@@ -93,8 +100,11 @@
     fontMode: SHARED.FONT_MODE_BASIC,
     advancedFontConfig: SHARED.createAdvancedFontConfig(),
     syncDisabledMap: Object.create(null),
+    siteFontMap: Object.create(null),
     migratingDisabledHost: false,
     tabIncognitoOverride: null,
+    tabIncognitoSiteFonts: Object.create(null),
+    lastSyncedBadgeDisabled: null,
     appliedSignature: '',
   };
 
@@ -102,6 +112,8 @@
   var fontFamilyIndexMap = new Map();
   var indexedFontsList = [];
   var puaOnlyFontFamilies = new Set();
+  var seenLoadedFaces = new WeakSet();
+  var parsedUnicodeRangeCache = new Map();
   var ligatureRatioCache = new Map();
   var loadedTriggeredFaces = new WeakSet();
   var trackedShadowRoots = new Set();
@@ -110,16 +122,21 @@
   var pipDocMeta = new WeakMap();
   var rootSheetMap = new WeakMap();
   var pendingElements = new Set();
+  var pendingDeferredRoots = new Set();
   var knownStylesheetLinks = new WeakSet();
 
   var mainDocObserver = null;
   var initialReadyTimer = null;
   var pendingTimeoutTimer = null;
+  var fontRescanTimer = null;
+  var deferredRescanTimer = null;
+  var deferredRescanMaxWaitTimer = null;
   var pendingFontDeadline = 0;
   var probeSeq = 0;
   var measureCtx = null;
   var cachedBodyPrimary = null;
   var pipEnterBound = false;
+  var pageShowBound = false;
   var activeListenersAttached = false;
   var domContentLoadedHandler = null;
 
@@ -132,12 +149,42 @@
     return true;
   }
 
+  function resolveActiveSiteFontRule() {
+    for (var i = 0; i < frameSiteInfo.keys.length; i++) {
+      var host = frameSiteInfo.keys[i];
+      if (IS_INCOGNITO && Object.prototype.hasOwnProperty.call(state.tabIncognitoSiteFonts, host)) {
+        var incRule = state.tabIncognitoSiteFonts[host];
+        if (incRule && !SHARED.isSiteFontRuleEmpty(incRule)) {
+          return incRule;
+        }
+        continue;
+      }
+      var rule = state.siteFontMap[SHARED.siteFontKey(host)];
+      if (rule && !SHARED.isSiteFontRuleEmpty(rule)) {
+        return rule;
+      }
+    }
+    return null;
+  }
+
+  function getEffectiveFontSettings() {
+    return SHARED.resolveEffectiveFontSettings(
+      {
+        fontMode: state.fontMode,
+        selectedFont: state.selectedFont,
+        advancedFontConfig: state.advancedFontConfig,
+      },
+      resolveActiveSiteFontRule()
+    );
+  }
+
   function isPrimaryFontSetEmpty() {
-    if (state.fontMode === SHARED.FONT_MODE_ADVANCED) {
-      var cfg = state.advancedFontConfig;
+    var effective = getEffectiveFontSettings();
+    if (effective.fontMode === SHARED.FONT_MODE_ADVANCED) {
+      var cfg = effective.advancedFontConfig;
       return !(cfg.cjkFont || cfg.cjkFontId || cfg.latinFont || cfg.latinFontId);
     }
-    return !state.selectedFont;
+    return !effective.selectedFont;
   }
 
   function computeEffectiveSiteDisabled() {
@@ -168,12 +215,13 @@
     if (!isEffectivelyEnabled()) {
       return 'dormant';
     }
-    var cfg = state.advancedFontConfig;
+    var effective = getEffectiveFontSettings();
+    var cfg = effective.advancedFontConfig;
     var cjkSlots = cfg.cjkFont || cfg.cjkFontId ? getSlotSnapshot(cfg.cjkFont, cfg.cjkFontId) : null;
     var latinSlots = cfg.latinFont || cfg.latinFontId ? getSlotSnapshot(cfg.latinFont, cfg.latinFontId) : null;
     return JSON.stringify({
-      mode: state.fontMode,
-      selectedFont: state.selectedFont,
+      mode: effective.fontMode,
+      selectedFont: effective.selectedFont,
       cjkFont: cfg.cjkFont,
       cjkFontId: cfg.cjkFontId,
       latinFont: cfg.latinFont,
@@ -188,9 +236,10 @@
       return '';
     }
 
+    var effective = getEffectiveFontSettings();
     var parts = [];
-    if (state.fontMode === SHARED.FONT_MODE_ADVANCED) {
-      var cfg = state.advancedFontConfig;
+    if (effective.fontMode === SHARED.FONT_MODE_ADVANCED) {
+      var cfg = effective.advancedFontConfig;
       if (cfg.cjkFont || cfg.cjkFontId) {
         parts.push(
           SHARED.buildRestrictedFontFaceSetCss(
@@ -216,9 +265,9 @@
     }
 
     var fontStack = SHARED.getFontStack(
-      state.fontMode,
-      state.selectedFont,
-      state.advancedFontConfig,
+      effective.fontMode,
+      effective.selectedFont,
+      effective.advancedFontConfig,
       SHARED.CJK_FONT_FAMILY,
       SHARED.LATIN_FONT_FAMILY
     );
@@ -488,34 +537,87 @@
     return { index: nextIndex, added: true };
   }
 
-  function rebuildPuaOnlyFontFamilies(doc) {
-    puaOnlyFontFamilies.clear();
-    var targetDoc = doc || (typeof document !== 'undefined' ? document : null);
-    if (!targetDoc || !targetDoc.fonts || typeof targetDoc.fonts.forEach !== 'function') {
-      return;
-    }
-    try {
-      targetDoc.fonts.forEach(function (face) {
-        if (!face || !face.family) return;
-        if (SHARED.isPurePuaUnicodeRange(face.unicodeRange)) {
-          var cleanName = face.family.replace(/^["']|["']$/g, '').trim().toLowerCase();
-          if (cleanName) {
-            puaOnlyFontFamilies.add(cleanName);
+  function buildDocFontIndex(targetDoc) {
+    var doc = targetDoc || (typeof document !== 'undefined' ? document : null);
+    var facesByFamily = new Map();
+    var loadedFamilies = new Set();
+    var puaOnly = new Set();
+    var cjkName = SHARED.CJK_FONT_FAMILY.toLowerCase();
+    var latinName = SHARED.LATIN_FONT_FAMILY.toLowerCase();
+    if (doc && doc.fonts && typeof doc.fonts.forEach === 'function') {
+      try {
+        doc.fonts.forEach(function (face) {
+          if (!face || !face.family) return;
+          var clean = face.family.replace(/^["']|["']$/g, '').trim().toLowerCase();
+          if (!clean) return;
+          var list = facesByFamily.get(clean);
+          if (!list) {
+            list = [];
+            facesByFamily.set(clean, list);
           }
-        }
-      });
-    } catch (_e) {
-      // Ignore FontFaceSet iteration issues in synthetic environments.
+          list.push(face);
+          if (clean !== cjkName && clean !== latinName) {
+            loadedFamilies.add(clean);
+          }
+          if (SHARED.isPurePuaUnicodeRange(face.unicodeRange)) {
+            puaOnly.add(clean);
+          }
+        });
+      } catch (_e) {
+        // Ignore FontFaceSet iteration issues in synthetic environments.
+      }
     }
+    return {
+      facesByFamily: facesByFamily,
+      loadedFamilies: loadedFamilies,
+      puaOnly: puaOnly,
+    };
   }
 
-  function getFontFacesForFamily(familyName, targetDoc) {
+  function getParsedUnicodeRange(rangeStr) {
+    if (!rangeStr || typeof rangeStr !== 'string') return null;
+    if (parsedUnicodeRangeCache.has(rangeStr)) {
+      return parsedUnicodeRangeCache.get(rangeStr);
+    }
+    var parsed = SHARED.parseUnicodeRangeString(rangeStr);
+    if (parsedUnicodeRangeCache.size >= MAX_UNICODE_RANGE_CACHE) {
+      parsedUnicodeRangeCache.clear();
+    }
+    parsedUnicodeRangeCache.set(rangeStr, parsed);
+    return parsed;
+  }
+
+  function faceRangeMatchesText(face, text) {
+    if (!face || !face.unicodeRange || !text) return true;
+    var ranges = getParsedUnicodeRange(face.unicodeRange);
+    if (!ranges || !ranges.length) return true;
+    if (ranges.length === 1 && ranges[0][0] === 0 && ranges[0][1] >= 0x10FFFF) {
+      return true;
+    }
+    for (var i = 0; i < text.length;) {
+      var cp = text.codePointAt(i);
+      i += cp > 0xFFFF ? 2 : 1;
+      if (cp <= 0x20) continue;
+      for (var r = 0; r < ranges.length; r++) {
+        if (cp >= ranges[r][0] && cp <= ranges[r][1]) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function getFontFacesForFamily(familyName, targetDoc, fontIndex) {
+    if (!familyName) return [];
+    var targetLower = familyName.toLowerCase();
+    if (fontIndex) {
+      return fontIndex.facesByFamily.get(targetLower) || [];
+    }
     var doc = targetDoc || (typeof document !== 'undefined' ? document : null);
     var faces = [];
-    if (!familyName || !doc || !doc.fonts || typeof doc.fonts.forEach !== 'function') {
+    if (!doc || !doc.fonts || typeof doc.fonts.forEach !== 'function') {
       return faces;
     }
-    var targetLower = familyName.toLowerCase();
     try {
       doc.fonts.forEach(function (face) {
         if (!face || !face.family) return;
@@ -530,12 +632,15 @@
     return faces;
   }
 
-  function hasPendingWebFont(familyName, targetDoc) {
-    var faces = getFontFacesForFamily(familyName, targetDoc);
+  function hasPendingWebFont(familyName, targetDoc, fontIndex, sampleText) {
+    var faces = getFontFacesForFamily(familyName, targetDoc, fontIndex);
     var hasPending = false;
     for (var i = 0; i < faces.length; i++) {
       var face = faces[i];
       if (face.status === 'unloaded' || face.status === 'loading') {
+        if (sampleText && !faceRangeMatchesText(face, sampleText)) {
+          continue;
+        }
         hasPending = true;
         if (!loadedTriggeredFaces.has(face) && typeof face.load === 'function') {
           loadedTriggeredFaces.add(face);
@@ -550,7 +655,8 @@
     return hasPending;
   }
 
-  function getLoadedWebFontFamilies(targetDoc) {
+  function getLoadedWebFontFamilies(targetDoc, fontIndex) {
+    if (fontIndex) return fontIndex.loadedFamilies;
     var doc = targetDoc || (typeof document !== 'undefined' ? document : null);
     var set = new Set();
     if (!doc || !doc.fonts || typeof doc.fonts.forEach !== 'function') return set;
@@ -667,19 +773,19 @@
     return '';
   }
 
-  function isSignal3Ligature(normText, rawFontFamily, targetDoc) {
+  function isSignal3Ligature(normText, rawFontFamily, targetDoc, fontIndex) {
     if (!normText || !rawFontFamily) return false;
     var families = SHARED.parseFontFamilyList(rawFontFamily);
     var primary = families.length ? families[0].toLowerCase() : '';
     if (!primary || DEFAULT_UI_FONTS.has(primary)) return false;
 
-    var webFonts = getLoadedWebFontFamilies(targetDoc);
+    var webFonts = getLoadedWebFontFamilies(targetDoc, fontIndex);
     var bodyPrimary = getUnpollutedBodyPrimary(targetDoc);
     if (bodyPrimary && primary === bodyPrimary && !webFonts.has(primary)) {
       return false;
     }
 
-    var faces = getFontFacesForFamily(families[0], targetDoc);
+    var faces = getFontFacesForFamily(families[0], targetDoc, fontIndex);
     var allLoaded = true;
     for (var i = 0; i < faces.length; i++) {
       if (faces[i].status !== 'loaded') {
@@ -727,26 +833,54 @@
     return text;
   }
 
+  var ALL_FC_ATTRS = [
+    SHARED.ACTIVE_DOM_ATTRS.ICON_FONT,
+    SHARED.ACTIVE_DOM_ATTRS.ICON_BEFORE,
+    SHARED.ACTIVE_DOM_ATTRS.ICON_AFTER,
+    SHARED.ACTIVE_DOM_ATTRS.ICON_LIGATURE,
+    SHARED.ACTIVE_DOM_ATTRS.ICON_BEFORE_LIG,
+    SHARED.ACTIVE_DOM_ATTRS.ICON_AFTER_LIG,
+    SHARED.ACTIVE_DOM_ATTRS.PENDING,
+  ];
+
+  function hasAnyFcAttr(el) {
+    if (!el || typeof el.hasAttribute !== 'function') return false;
+    for (var i = 0; i < ALL_FC_ATTRS.length; i++) {
+      if (el.hasAttribute(ALL_FC_ATTRS[i])) return true;
+    }
+    return false;
+  }
+
   function clearElementFcAttrs(el) {
     if (!el || typeof el.removeAttribute !== 'function') return;
-    var attrs = [
-      SHARED.ACTIVE_DOM_ATTRS.ICON_FONT,
-      SHARED.ACTIVE_DOM_ATTRS.ICON_BEFORE,
-      SHARED.ACTIVE_DOM_ATTRS.ICON_AFTER,
-      SHARED.ACTIVE_DOM_ATTRS.ICON_LIGATURE,
-      SHARED.ACTIVE_DOM_ATTRS.ICON_BEFORE_LIG,
-      SHARED.ACTIVE_DOM_ATTRS.ICON_AFTER_LIG,
-      SHARED.ACTIVE_DOM_ATTRS.PENDING,
-    ];
-    for (var i = 0; i < attrs.length; i++) {
-      el.removeAttribute(attrs[i]);
+    if (!hasAnyFcAttr(el)) return;
+    for (var i = 0; i < ALL_FC_ATTRS.length; i++) {
+      if (typeof el.hasAttribute !== 'function' || el.hasAttribute(ALL_FC_ATTRS[i])) {
+        el.removeAttribute(ALL_FC_ATTRS[i]);
+      }
     }
   }
 
-  function evaluatePseudo(el, pseudoName, targetDoc) {
+  function applyElementFcAttrsDiff(el, nextAttrs) {
+    if (!el) return;
+    for (var i = 0; i < ALL_FC_ATTRS.length; i++) {
+      var attr = ALL_FC_ATTRS[i];
+      var nextVal = nextAttrs && nextAttrs[attr] !== undefined ? nextAttrs[attr] : null;
+      var curVal = typeof el.getAttribute === 'function' ? el.getAttribute(attr) : null;
+      if (nextVal === null) {
+        if (curVal !== null && typeof el.removeAttribute === 'function') {
+          el.removeAttribute(attr);
+        }
+      } else if (curVal !== nextVal && typeof el.setAttribute === 'function') {
+        el.setAttribute(attr, nextVal);
+      }
+    }
+  }
+
+  function evaluatePseudo(el, pseudoName, targetDoc, fontIndex, preReadContent) {
     var cs = getComputedStyleSafe(el, pseudoName);
     if (!cs) return null;
-    var contentText = parsePseudoContent(cs.content);
+    var contentText = preReadContent !== undefined ? preReadContent : parsePseudoContent(cs.content);
     if (!hasNonWhitespaceText(contentText)) return null;
 
     var fontFamily = cs.fontFamily || '';
@@ -754,7 +888,7 @@
     var primary = families.length ? families[0] : '';
     var puaHit = SHARED.PUA_REGEX.test(contentText);
 
-    if (!puaHit && primary && hasPendingWebFont(primary, targetDoc)) {
+    if (!puaHit && primary && hasPendingWebFont(primary, targetDoc, fontIndex, contentText)) {
       return { pending: true };
     }
 
@@ -766,50 +900,49 @@
     if (hasSignal2IconFont(primary)) {
       return { pending: false, iconFont: fontFamily, ligature: Boolean(normText) };
     }
-    if (normText && isSignal3Ligature(normText, fontFamily, targetDoc)) {
+    if (normText && isSignal3Ligature(normText, fontFamily, targetDoc, fontIndex)) {
       return { pending: false, iconFont: fontFamily, ligature: true };
     }
     return null;
   }
 
-  function classifySingleElement(el, targetDoc, allowPendingHold) {
-    if (isSkippedTag(el)) {
-      clearElementFcAttrs(el);
-      pendingElements.delete(el);
-      return false;
-    }
-
+  function computeElementClassification(item, targetDoc, allowPendingHold, fontIndex) {
+    var el = item.el;
     var cs = getComputedStyleSafe(el);
-    if (!cs) return false;
+    if (!cs) return null;
 
     var doc = targetDoc || el.ownerDocument || document;
     var fontFamily = cs.fontFamily || '';
     var families = SHARED.parseFontFamilyList(fontFamily);
     var primary = families.length ? families[0] : '';
 
-    var childElementCount = el.children ? el.children.length : 0;
-    var isLeaf = childElementCount === 0;
-    var hostText = isLeaf ? (el.textContent || '') : getDirectTextContent(el);
-    var hasHostText = hasNonWhitespaceText(hostText);
-    var hostVisibleContent = hasNonWhitespaceText(el.textContent || '') || childElementCount > 0;
+    var isLeaf = item.isLeaf;
+    var hostText = item.hostText;
+    var hasHostText = item.hasHostText;
+    var hostVisibleContent = item.hostVisibleContent;
 
-    var beforeRes = evaluatePseudo(el, '::before', doc);
-    var afterRes = evaluatePseudo(el, '::after', doc);
+    var beforeRes = item.hasBeforeContent
+      ? evaluatePseudo(el, '::before', doc, fontIndex, item.beforeContent)
+      : null;
+    var afterRes = item.hasAfterContent
+      ? evaluatePseudo(el, '::after', doc, fontIndex, item.afterContent)
+      : null;
 
     var hostPending = false;
     var hostIcon = null;
 
-    if (hasHostText || isLeaf) {
+    if (hasHostText) {
       var hostPua = SHARED.PUA_REGEX.test(hostText);
       if (hostPua) {
         hostIcon = { font: fontFamily, ligature: false };
       } else {
         var normHost = isAsciiLigatureCandidateText(hostText);
-        if (primary && (normHost || !hasHostText || ICON_KEYWORD_REGEX.test(primary)) && hasPendingWebFont(primary, doc)) {
+        if (primary && (normHost || ICON_KEYWORD_REGEX.test(primary)) &&
+            hasPendingWebFont(primary, doc, fontIndex, hostText)) {
           hostPending = true;
         } else if (hasSignal2IconFont(primary)) {
           hostIcon = { font: fontFamily, ligature: Boolean(normHost) };
-        } else if (normHost && isSignal3Ligature(normHost, fontFamily, doc)) {
+        } else if (normHost && isSignal3Ligature(normHost, fontFamily, doc, fontIndex)) {
           hostIcon = { font: fontFamily, ligature: true };
         }
       }
@@ -817,25 +950,21 @@
 
     var anyPending = hostPending || Boolean(beforeRes && beforeRes.pending) || Boolean(afterRes && afterRes.pending);
     if (anyPending && allowPendingHold && (!pendingFontDeadline || Date.now() < pendingFontDeadline)) {
-      clearElementFcAttrs(el);
-      el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.PENDING, '1');
-      pendingElements.add(el);
-      schedulePendingFallbackTimer();
-      return false;
+      var pendingAttrs = Object.create(null);
+      pendingAttrs[SHARED.ACTIVE_DOM_ATTRS.PENDING] = '1';
+      return { el: el, isPending: true, addedFontRule: false, nextAttrs: pendingAttrs };
     }
 
-    pendingElements.delete(el);
-    clearElementFcAttrs(el);
-
+    var nextAttrs = Object.create(null);
     var addedFontRule = false;
     var hostPinned = false;
 
     if (hostIcon && (isLeaf || hasHostText)) {
       var hostIdx = ensureFontIndex(hostIcon.font);
       addedFontRule = addedFontRule || hostIdx.added;
-      el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_FONT, hostIdx.index);
+      nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_FONT] = hostIdx.index;
       if (hostIcon.ligature) {
-        el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_LIGATURE, '1');
+        nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_LIGATURE] = '1';
       }
       hostPinned = true;
     }
@@ -844,17 +973,17 @@
       if (!hostVisibleContent) {
         var bWholeIdx = ensureFontIndex(beforeRes.iconFont);
         addedFontRule = addedFontRule || bWholeIdx.added;
-        el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_FONT, bWholeIdx.index);
+        nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_FONT] = bWholeIdx.index;
         if (beforeRes.ligature) {
-          el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_LIGATURE, '1');
+          nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_LIGATURE] = '1';
         }
         hostPinned = true;
       } else {
         var bPseudoIdx = ensureFontIndex(beforeRes.iconFont);
         addedFontRule = addedFontRule || bPseudoIdx.added;
-        el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_BEFORE, bPseudoIdx.index);
+        nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_BEFORE] = bPseudoIdx.index;
         if (beforeRes.ligature) {
-          el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_BEFORE_LIG, '1');
+          nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_BEFORE_LIG] = '1';
         }
       }
     }
@@ -863,22 +992,76 @@
       if (!hostVisibleContent) {
         var aWholeIdx = ensureFontIndex(afterRes.iconFont);
         addedFontRule = addedFontRule || aWholeIdx.added;
-        el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_FONT, aWholeIdx.index);
+        nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_FONT] = aWholeIdx.index;
         if (afterRes.ligature) {
-          el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_LIGATURE, '1');
+          nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_LIGATURE] = '1';
         }
         hostPinned = true;
       } else {
         var aPseudoIdx = ensureFontIndex(afterRes.iconFont);
         addedFontRule = addedFontRule || aPseudoIdx.added;
-        el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_AFTER, aPseudoIdx.index);
+        nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_AFTER] = aPseudoIdx.index;
         if (afterRes.ligature) {
-          el.setAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_AFTER_LIG, '1');
+          nextAttrs[SHARED.ACTIVE_DOM_ATTRS.ICON_AFTER_LIG] = '1';
         }
       }
     }
 
-    return addedFontRule;
+    return { el: el, isPending: false, addedFontRule: addedFontRule, nextAttrs: nextAttrs };
+  }
+
+  function getInputControlText(el) {
+    if (!el || !el.tagName || String(el.tagName).toUpperCase() !== 'INPUT') return '';
+    var inputType = String(el.type || (typeof el.getAttribute === 'function' ? el.getAttribute('type') : '') || '').toLowerCase();
+    if (inputType !== 'button' && inputType !== 'submit' && inputType !== 'reset') {
+      return '';
+    }
+    var val = typeof el.value === 'string' && el.value
+      ? el.value
+      : (typeof el.getAttribute === 'function' ? (el.getAttribute('value') || '') : '');
+    return String(val || '');
+  }
+
+  function hasInlineOrClassIconHint(el) {
+    if (!el) return false;
+    var cls = typeof el.className === 'string' ? el.className : '';
+    if (cls && ICON_KEYWORD_REGEX.test(cls)) return true;
+    if (el.style && typeof el.style.fontFamily === 'string' && ICON_KEYWORD_REGEX.test(el.style.fontFamily)) {
+      return true;
+    }
+    var inlineStyle = typeof el.getAttribute === 'function' ? el.getAttribute('style') : '';
+    return Boolean(inlineStyle && ICON_KEYWORD_REGEX.test(inlineStyle));
+  }
+
+  function shouldCheckLongHostText(el, hostText) {
+    if (hostText.trim().length <= 64) return true;
+    if (SHARED.PUA_REGEX.test(hostText) || Boolean(isAsciiLigatureCandidateText(hostText))) {
+      return true;
+    }
+    if (hasInlineOrClassIconHint(el)) return true;
+    var tag = el && el.tagName ? String(el.tagName).toUpperCase() : '';
+    if (!PROSE_BLOCK_TAGS.has(tag)) return true;
+    return false;
+  }
+
+  function classifyElementsGroupedByDoc(elements, allowPendingHold) {
+    if (!elements || !elements.length) return;
+    var fallbackDoc = typeof document !== 'undefined' ? document : null;
+    var byDoc = new Map();
+    for (var i = 0; i < elements.length; i++) {
+      var el = elements[i];
+      if (!el) continue;
+      var ownerDoc = el.ownerDocument || fallbackDoc;
+      var bucket = byDoc.get(ownerDoc);
+      if (!bucket) {
+        bucket = [];
+        byDoc.set(ownerDoc, bucket);
+      }
+      bucket.push(el);
+    }
+    byDoc.forEach(function (group, doc) {
+      classifyElementsBatch(group, doc, allowPendingHold);
+    });
   }
 
   function schedulePendingFallbackTimer() {
@@ -893,7 +1076,7 @@
       if (pendingElements.size > 0) {
         var batch = Array.from(pendingElements);
         pendingElements.clear();
-        classifyElementsBatch(batch, typeof document !== 'undefined' ? document : null, false);
+        classifyElementsGroupedByDoc(batch, false);
       }
     }, remaining);
   }
@@ -901,18 +1084,95 @@
   function classifyElementsBatch(elements, targetDoc, allowPendingHold) {
     if (!isEffectivelyEnabled() || !elements || !elements.length) return;
     var doc = targetDoc || (typeof document !== 'undefined' ? document : null);
-    rebuildPuaOnlyFontFamilies(doc);
+
+    // Phase 0: Pre-filter elements before disabling active stylesheets so batches
+    // containing only ordinary non-icon text incur zero full-document style invalidation.
+    var probeList = [];
+    var skipClearList = [];
+    for (var i = 0; i < elements.length; i++) {
+      var el = elements[i];
+      if (!el || el.nodeType !== 1 || !el.isConnected) continue;
+      if (isSkippedTag(el)) {
+        if (hasAnyFcAttr(el)) skipClearList.push(el);
+        pendingElements.delete(el);
+        continue;
+      }
+
+      var hadFc = hasAnyFcAttr(el);
+      var childElementCount = el.children ? el.children.length : 0;
+      var isLeaf = childElementCount === 0;
+      var hostText = isLeaf ? (el.textContent || '') : getDirectTextContent(el);
+      if (!hasNonWhitespaceText(hostText) && isLeaf) {
+        var inputVal = getInputControlText(el);
+        if (inputVal) hostText = inputVal;
+      }
+      var hasHostText = hasNonWhitespaceText(hostText);
+      var hostVisibleContent = hasHostText || childElementCount > 0 ||
+        (!isLeaf && hasNonWhitespaceText(el.textContent || ''));
+
+      var beforeCs = getComputedStyleSafe(el, '::before');
+      var afterCs = getComputedStyleSafe(el, '::after');
+      var beforeContent = beforeCs ? parsePseudoContent(beforeCs.content) : '';
+      var afterContent = afterCs ? parsePseudoContent(afterCs.content) : '';
+      var hasBeforeContent = hasNonWhitespaceText(beforeContent);
+      var hasAfterContent = hasNonWhitespaceText(afterContent);
+
+      var needsHostCheck = hasHostText && shouldCheckLongHostText(el, hostText);
+
+      if (!hadFc && !hasBeforeContent && !hasAfterContent && !needsHostCheck) {
+        continue;
+      }
+
+      probeList.push({
+        el: el,
+        isLeaf: isLeaf,
+        hostText: hostText,
+        hasHostText: hasHostText,
+        hostVisibleContent: hostVisibleContent,
+        hasBeforeContent: hasBeforeContent,
+        beforeContent: beforeContent,
+        hasAfterContent: hasAfterContent,
+        afterContent: afterContent,
+      });
+    }
+
+    for (var s = 0; s < skipClearList.length; s++) {
+      clearElementFcAttrs(skipClearList[s]);
+    }
+
+    if (!probeList.length) return;
+
+    var fontIndex = buildDocFontIndex(doc);
+    puaOnlyFontFamilies = fontIndex.puaOnly;
     cachedBodyPrimary = null;
 
     setActiveSheetsDisabled(true);
     var needsSheetUpdate = false;
+    var computedResults = [];
     try {
-      for (var i = 0; i < elements.length; i++) {
-        var el = elements[i];
-        if (!el || el.nodeType !== 1 || !el.isConnected) continue;
-        if (classifySingleElement(el, doc, allowPendingHold)) {
-          needsSheetUpdate = true;
+      // Phase 1: Pure read pass against unpolluted styles.
+      for (var p = 0; p < probeList.length; p++) {
+        var res = computeElementClassification(probeList[p], doc, allowPendingHold, fontIndex);
+        if (res) {
+          if (res.addedFontRule) needsSheetUpdate = true;
+          computedResults.push(res);
         }
+      }
+
+      // Phase 2: Write only changed attributes after all getComputedStyle reads finish.
+      var scheduledPending = false;
+      for (var w = 0; w < computedResults.length; w++) {
+        var itemRes = computedResults[w];
+        if (itemRes.isPending) {
+          pendingElements.add(itemRes.el);
+          scheduledPending = true;
+        } else {
+          pendingElements.delete(itemRes.el);
+        }
+        applyElementFcAttrsDiff(itemRes.el, itemRes.nextAttrs);
+      }
+      if (scheduledPending) {
+        schedulePendingFallbackTimer();
       }
     } finally {
       if (needsSheetUpdate) {
@@ -989,9 +1249,56 @@
     }
   }
 
+  function collectBoundedSubtreeElements(rootEl, maxCount, newShadowRoots) {
+    var collected = [];
+    function walk(cur) {
+      if (!cur || cur.nodeType !== 1 || isSkippedTag(cur)) return true;
+      collected.push(cur);
+      if (collected.length > maxCount) return false;
+      if (cur.shadowRoot && newShadowRoots) {
+        newShadowRoots.push(cur.shadowRoot);
+      }
+      var children = cur.children;
+      if (children && children.length) {
+        for (var i = 0; i < children.length; i++) {
+          if (!walk(children[i])) return false;
+        }
+      }
+      return true;
+    }
+    return walk(rootEl) ? collected : null;
+  }
+
+  function shouldInspectSubtreeElement(el) {
+    var hasChildren = el.children && el.children.length > 0;
+    if (!hasChildren || el.hasAttribute('class') || hasAnyFcAttr(el)) {
+      return true;
+    }
+    var elText = el.textContent || '';
+    return SHARED.PUA_REGEX.test(elText) ||
+      Boolean(isAsciiLigatureCandidateText(elText)) ||
+      !hasNonWhitespaceText(elText);
+  }
+
+  function getStyleAttrValue(el) {
+    if (!el) return '';
+    if (typeof el.getAttribute === 'function') {
+      var attrVal = el.getAttribute('style');
+      if (typeof attrVal === 'string' && attrVal) return attrVal;
+    }
+    if (el.style && typeof el.style.cssText === 'string') {
+      return el.style.cssText;
+    }
+    return '';
+  }
+
   function prefilterMutationCandidates(mutations) {
     var candidates = new Set();
     var touchedShadows = [];
+    var deferredRoots = [];
+    var styleAttrTargets = new Map();
+    var classAttrTargets = new Set();
+    var visitedAddedElements = new Set();
 
     for (var i = 0; i < mutations.length; i++) {
       var m = mutations[i];
@@ -1017,9 +1324,13 @@
         }
         var attrTarget = m.target;
         if (attrTarget && attrTarget.nodeType === 1 && !isSkippedTag(attrTarget)) {
-          collectElementsAndShadowRoots(attrTarget, {
-            push: function (el) { candidates.add(el); },
-          }, touchedShadows);
+          if (m.attributeName === 'style') {
+            var oldMatches = typeof m.oldValue === 'string' && STYLE_FONT_OR_VAR_REGEX.test(m.oldValue);
+            var prevFlag = styleAttrTargets.get(attrTarget) || false;
+            styleAttrTargets.set(attrTarget, prevFlag || oldMatches);
+          } else {
+            classAttrTargets.add(attrTarget);
+          }
         }
         continue;
       }
@@ -1039,6 +1350,7 @@
               }
             }
           } else if (added.nodeType === 1 && !isSkippedTag(added)) {
+            if (visitedAddedElements.has(added)) continue;
             if (added.tagName && String(added.tagName).toUpperCase() === 'LINK') {
               watchStylesheetLinks(added.ownerDocument);
             }
@@ -1046,13 +1358,8 @@
             collectElementsAndShadowRoots(added, subElements, touchedShadows);
             for (var k = 0; k < subElements.length; k++) {
               var el = subElements[k];
-              var hasChildren = el.children && el.children.length > 0;
-              var elText = el.textContent || '';
-              if (!hasChildren ||
-                  el.hasAttribute('class') ||
-                  SHARED.PUA_REGEX.test(elText) ||
-                  isAsciiLigatureCandidateText(elText) ||
-                  !hasNonWhitespaceText(elText)) {
+              visitedAddedElements.add(el);
+              if (shouldInspectSubtreeElement(el)) {
                 candidates.add(el);
               }
             }
@@ -1061,7 +1368,63 @@
       }
     }
 
-    return { candidates: Array.from(candidates), touchedShadows: touchedShadows };
+    styleAttrTargets.forEach(function (oldMatchedFontOrVar, el) {
+      if (visitedAddedElements.has(el)) return;
+      var tag = el.tagName ? String(el.tagName).toUpperCase() : '';
+      var curStyle = getStyleAttrValue(el);
+      var affectsFontOrVar = oldMatchedFontOrVar || STYLE_FONT_OR_VAR_REGEX.test(curStyle);
+
+      if (tag === 'HTML' || tag === 'BODY') {
+        if (hasAnyFcAttr(el)) candidates.add(el);
+        if (affectsFontOrVar) deferredRoots.push(el);
+        return;
+      }
+
+      if (!affectsFontOrVar) {
+        var hasChildren = el.children && el.children.length > 0;
+        if (!hasChildren || hasAnyFcAttr(el) || hasNonWhitespaceText(getDirectTextContent(el))) {
+          candidates.add(el);
+        }
+        return;
+      }
+
+      var boundedStyle = collectBoundedSubtreeElements(el, MAX_ATTR_SUBTREE_ELEMENTS, touchedShadows);
+      if (!boundedStyle) {
+        deferredRoots.push(el);
+        return;
+      }
+      for (var s = 0; s < boundedStyle.length; s++) {
+        if (shouldInspectSubtreeElement(boundedStyle[s])) {
+          candidates.add(boundedStyle[s]);
+        }
+      }
+    });
+
+    classAttrTargets.forEach(function (el) {
+      if (visitedAddedElements.has(el)) return;
+      var tag = el.tagName ? String(el.tagName).toUpperCase() : '';
+      if (tag === 'HTML' || tag === 'BODY') {
+        if (hasAnyFcAttr(el)) candidates.add(el);
+        deferredRoots.push(el);
+        return;
+      }
+      var bounded = collectBoundedSubtreeElements(el, MAX_ATTR_SUBTREE_ELEMENTS, touchedShadows);
+      if (!bounded) {
+        deferredRoots.push(el);
+        return;
+      }
+      for (var i = 0; i < bounded.length; i++) {
+        if (shouldInspectSubtreeElement(bounded[i])) {
+          candidates.add(bounded[i]);
+        }
+      }
+    });
+
+    return {
+      candidates: Array.from(candidates),
+      touchedShadows: touchedShadows,
+      deferredRoots: deferredRoots,
+    };
   }
 
   function createDebouncedMutationObserver(root, rootRef, onBatch) {
@@ -1119,6 +1482,7 @@
         subtree: true,
         characterData: true,
         attributes: true,
+        attributeOldValue: true,
         attributeFilter: ['class', 'style'],
       });
     } catch (_e) {
@@ -1141,6 +1505,76 @@
     };
   }
 
+  function flushDeferredContainerRescans() {
+    if (deferredRescanTimer) {
+      clearTimeout(deferredRescanTimer);
+      deferredRescanTimer = null;
+    }
+    if (deferredRescanMaxWaitTimer) {
+      clearTimeout(deferredRescanMaxWaitTimer);
+      deferredRescanMaxWaitTimer = null;
+    }
+    if (!isAlive() || !state.active || pendingDeferredRoots.size === 0) {
+      pendingDeferredRoots.clear();
+      return;
+    }
+    var roots = Array.from(pendingDeferredRoots);
+    pendingDeferredRoots.clear();
+
+    var wholeDocs = new Set();
+    var containerRoots = [];
+    for (var i = 0; i < roots.length; i++) {
+      var r = roots[i];
+      if (!r || !r.isConnected) continue;
+      var tag = r.tagName ? String(r.tagName).toUpperCase() : '';
+      if (tag === 'HTML' || tag === 'BODY') {
+        wholeDocs.add(r.ownerDocument || document);
+      } else {
+        containerRoots.push(r);
+      }
+    }
+
+    wholeDocs.forEach(function (doc) {
+      if (doc) scanRootTree(doc, true);
+    });
+
+    // Drop deferred containers already covered by an ancestor container in this batch.
+    var coalesced = [];
+    for (var j = 0; j < containerRoots.length; j++) {
+      var cRoot = containerRoots[j];
+      var cDoc = cRoot.ownerDocument || document;
+      if (wholeDocs.has(cDoc)) continue;
+      var coveredByAncestor = false;
+      for (var k = 0; k < containerRoots.length; k++) {
+        if (k === j) continue;
+        var other = containerRoots[k];
+        if (other && typeof other.contains === 'function' && other.contains(cRoot)) {
+          coveredByAncestor = true;
+          break;
+        }
+      }
+      if (!coveredByAncestor) {
+        coalesced.push(cRoot);
+      }
+    }
+
+    for (var c = 0; c < coalesced.length; c++) {
+      scanRootTree(coalesced[c], true);
+    }
+  }
+
+  function scheduleDeferredContainerRescan(roots) {
+    if (!roots || !roots.length) return;
+    for (var i = 0; i < roots.length; i++) {
+      if (roots[i]) pendingDeferredRoots.add(roots[i]);
+    }
+    if (deferredRescanTimer) clearTimeout(deferredRescanTimer);
+    deferredRescanTimer = setTimeout(flushDeferredContainerRescans, DEFERRED_CONTAINER_DEBOUNCE_MS);
+    if (!deferredRescanMaxWaitTimer) {
+      deferredRescanMaxWaitTimer = setTimeout(flushDeferredContainerRescans, DEFERRED_CONTAINER_MAX_WAIT_MS);
+    }
+  }
+
   function handleMutationBatch(targetRoot, mutations) {
     if (!isAlive() || !state.active) return;
     pruneTrackedShadowRoots();
@@ -1151,6 +1585,9 @@
     if (result.candidates.length > 0) {
       var doc = targetRoot.nodeType === 9 ? targetRoot : (targetRoot.ownerDocument || document);
       classifyElementsBatch(result.candidates, doc, true);
+    }
+    if (result.deferredRoots && result.deferredRoots.length > 0) {
+      scheduleDeferredContainerRescan(result.deferredRoots);
     }
   }
 
@@ -1346,7 +1783,22 @@
     pipEnterBound = false;
   }
 
-  function handleStylesheetOrFontLoaded() {
+  function scheduleDebouncedFullRescan() {
+    if (fontRescanTimer) {
+      clearTimeout(fontRescanTimer);
+    }
+    fontRescanTimer = setTimeout(function () {
+      fontRescanTimer = null;
+      if (!isAlive() || !state.active) return;
+      pendingFontDeadline = Date.now() + PENDING_FONT_TIMEOUT_MS;
+      scanRootTree(document, true);
+      trackedPipDocuments.forEach(function (pipDoc) {
+        scanRootTree(pipDoc, true);
+      });
+    }, FONT_RESCAN_DEBOUNCE_MS);
+  }
+
+  function handleStylesheetOrFontLoaded(event) {
     if (!isAlive() || !state.active) return;
     ligatureRatioCache.clear();
     cachedBodyPrimary = null;
@@ -1354,7 +1806,39 @@
       clearTimeout(pendingTimeoutTimer);
       pendingTimeoutTimer = null;
     }
-    pendingElements.clear();
+
+    var isLoadingDone = Boolean(event && event.type === 'loadingdone');
+    var loadedFaces = isLoadingDone && Array.isArray(event.fontfaces) ? event.fontfaces : null;
+
+    if (pendingElements.size > 0) {
+      var pendingBatch = Array.from(pendingElements);
+      pendingElements.clear();
+      pendingFontDeadline = Date.now() + PENDING_FONT_TIMEOUT_MS;
+      classifyElementsGroupedByDoc(pendingBatch, true);
+    }
+
+    if (isLoadingDone && loadedFaces) {
+      var cjkName = SHARED.CJK_FONT_FAMILY.toLowerCase();
+      var latinName = SHARED.LATIN_FONT_FAMILY.toLowerCase();
+      var hasNewFace = false;
+      for (var i = 0; i < loadedFaces.length; i++) {
+        var face = loadedFaces[i];
+        if (!face || !face.family) continue;
+        var clean = face.family.replace(/^["']|["']$/g, '').trim().toLowerCase();
+        if (!clean || clean === '__fc_probe' || clean === cjkName || clean === latinName) {
+          continue;
+        }
+        if (!seenLoadedFaces.has(face)) {
+          seenLoadedFaces.add(face);
+          hasNewFace = true;
+        }
+      }
+      if (hasNewFace) {
+        scheduleDebouncedFullRescan();
+      }
+      return;
+    }
+
     pendingFontDeadline = Date.now() + PENDING_FONT_TIMEOUT_MS;
     scanRootTree(document, true);
     trackedPipDocuments.forEach(function (pipDoc) {
@@ -1389,10 +1873,14 @@
   }
 
   function triggerLocalSlotProbesIfNeeded() {
-    if (state.fontMode !== SHARED.FONT_MODE_ADVANCED || !isEffectivelyEnabled()) {
+    if (!isEffectivelyEnabled()) {
       return;
     }
-    var cfg = state.advancedFontConfig;
+    var effective = getEffectiveFontSettings();
+    if (effective.fontMode !== SHARED.FONT_MODE_ADVANCED) {
+      return;
+    }
+    var cfg = effective.advancedFontConfig;
     var tasks = [];
     if (cfg.cjkFont || cfg.cjkFontId) {
       tasks.push(SHARED.probeLocalFontSlots(cfg.cjkFont, cfg.cjkFontId, localFontSlotsCache));
@@ -1437,8 +1925,23 @@
       clearTimeout(pendingTimeoutTimer);
       pendingTimeoutTimer = null;
     }
+    if (fontRescanTimer) {
+      clearTimeout(fontRescanTimer);
+      fontRescanTimer = null;
+    }
+    if (deferredRescanTimer) {
+      clearTimeout(deferredRescanTimer);
+      deferredRescanTimer = null;
+    }
+    if (deferredRescanMaxWaitTimer) {
+      clearTimeout(deferredRescanMaxWaitTimer);
+      deferredRescanMaxWaitTimer = null;
+    }
     pendingElements.clear();
+    pendingDeferredRoots.clear();
     pendingFontDeadline = 0;
+    seenLoadedFaces = new WeakSet();
+    parsedUnicodeRangeCache.clear();
 
     detachActiveEnvironmentListeners();
 
@@ -1527,6 +2030,56 @@
     performActivePass();
   }
 
+  function syncTopFrameOffBadge() {
+    if (!IS_TOP_FRAME || !state.storageReady) return;
+    if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id ||
+        typeof chrome.runtime.sendMessage !== 'function') {
+      return;
+    }
+    var disabled = computeEffectiveSiteDisabled();
+    if (state.lastSyncedBadgeDisabled === disabled) return;
+    state.lastSyncedBadgeDisabled = disabled;
+    try {
+      var res = chrome.runtime.sendMessage(
+        { action: SHARED.MSG_ACTIONS.SYNC_TAB_BADGE, isSiteDisabled: disabled },
+        function () {
+          if (chrome.runtime) {
+            void chrome.runtime.lastError;
+          }
+        }
+      );
+      if (res && typeof res.catch === 'function') {
+        res.catch(function () {});
+      }
+    } catch (_e) {
+      // Ignore runtime messaging failures when no background listener is active.
+    }
+  }
+
+  function handlePageShow(event) {
+    if (!isAlive() || !IS_TOP_FRAME) return;
+    if (event && event.persisted) {
+      state.lastSyncedBadgeDisabled = null;
+      syncTopFrameOffBadge();
+    }
+  }
+
+  function registerPageShowListener() {
+    if (pageShowBound || !IS_TOP_FRAME) return;
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('pageshow', handlePageShow);
+      pageShowBound = true;
+    }
+  }
+
+  function unregisterPageShowListener() {
+    if (!pageShowBound) return;
+    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+      window.removeEventListener('pageshow', handlePageShow);
+    }
+    pageShowBound = false;
+  }
+
   function syncStateMachine() {
     if (!isAlive()) return;
     if (isEffectivelyEnabled()) {
@@ -1534,6 +2087,7 @@
     } else {
       deactivate();
     }
+    syncTopFrameOffBadge();
   }
 
   function runTopFrameLegacyMigration() {
@@ -1583,6 +2137,7 @@
     ];
     for (var i = 0; i < frameSiteInfo.keys.length; i++) {
       keys.push(SHARED.siteDisabledKey(frameSiteInfo.keys[i]));
+      keys.push(SHARED.siteFontKey(frameSiteInfo.keys[i]));
     }
     return keys;
   }
@@ -1596,10 +2151,16 @@
     state.fontMode = SHARED.normalizeFontMode(src[SHARED.STORAGE_KEYS.FONT_MODE]);
     state.advancedFontConfig = SHARED.createAdvancedFontConfig(src[SHARED.STORAGE_KEYS.ADVANCED_FONT_CONFIG]);
     state.syncDisabledMap = Object.create(null);
+    state.siteFontMap = Object.create(null);
     for (var i = 0; i < frameSiteInfo.keys.length; i++) {
-      var k = SHARED.siteDisabledKey(frameSiteInfo.keys[i]);
+      var host = frameSiteInfo.keys[i];
+      var k = SHARED.siteDisabledKey(host);
       if (src[k]) {
         state.syncDisabledMap[k] = 1;
+      }
+      var fk = SHARED.siteFontKey(host);
+      if (src[fk] && !SHARED.isSiteFontRuleEmpty(src[fk])) {
+        state.siteFontMap[fk] = SHARED.createSiteFontRule(src[fk]);
       }
     }
   }
@@ -1608,7 +2169,6 @@
     if (!isAlive() || areaName !== 'sync' || !changes) return;
 
     var relevant = false;
-    var k;
     var globalKeys = [
       SHARED.STORAGE_KEYS.SELECTED_FONT,
       SHARED.STORAGE_KEYS.IS_ENABLED,
@@ -1623,10 +2183,17 @@
     }
 
     var siteKeySet = new Set();
+    var siteFontKeySet = new Set();
     for (var j = 0; j < frameSiteInfo.keys.length; j++) {
-      var sk = SHARED.siteDisabledKey(frameSiteInfo.keys[j]);
+      var host = frameSiteInfo.keys[j];
+      var sk = SHARED.siteDisabledKey(host);
       siteKeySet.add(sk);
       if (Object.prototype.hasOwnProperty.call(changes, sk)) {
+        relevant = true;
+      }
+      var fk = SHARED.siteFontKey(host);
+      siteFontKeySet.add(fk);
+      if (Object.prototype.hasOwnProperty.call(changes, fk)) {
         relevant = true;
       }
     }
@@ -1660,6 +2227,17 @@
       }
     });
 
+    siteFontKeySet.forEach(function (fkKey) {
+      if (changes[fkKey]) {
+        var nextRule = changes[fkKey].newValue;
+        if (nextRule && !SHARED.isSiteFontRuleEmpty(nextRule)) {
+          state.siteFontMap[fkKey] = SHARED.createSiteFontRule(nextRule);
+        } else {
+          delete state.siteFontMap[fkKey];
+        }
+      }
+    });
+
     syncStateMachine();
   }
 
@@ -1669,6 +2247,8 @@
     }
 
     if (request.action === SHARED.MSG_ACTIONS.GET_PAGE_STATE) {
+      var topKey = frameSiteInfo.topHost || frameSiteInfo.ownHost;
+      var hasTopOverride = Boolean(topKey && Object.prototype.hasOwnProperty.call(state.tabIncognitoSiteFonts, topKey));
       sendResponse({
         ok: true,
         hasFontChanger: true,
@@ -1676,6 +2256,9 @@
         topHost: frameSiteInfo.topHost,
         frameHosts: frameSiteInfo.keys.slice(),
         tabIncognitoOverride: state.tabIncognitoOverride,
+        tabIncognitoSiteFontOverride: hasTopOverride ? state.tabIncognitoSiteFonts[topKey] : null,
+        hasTabIncognitoSiteFontOverride: hasTopOverride,
+        activeSiteFontRule: resolveActiveSiteFontRule(),
         isSiteDisabled: computeEffectiveSiteDisabled(),
         isIncognito: IS_INCOGNITO,
         isActive: state.active,
@@ -1690,6 +2273,29 @@
       sendResponse({
         ok: true,
         isSiteDisabled: computeEffectiveSiteDisabled(),
+      });
+      return undefined;
+    }
+
+    if (request.action === SHARED.MSG_ACTIONS.SET_TAB_SITE_FONT) {
+      var targetHost = typeof request.host === 'string' && request.host
+        ? request.host
+        : (frameSiteInfo.topHost || frameSiteInfo.ownHost);
+      if (targetHost) {
+        if (request.clearToInherit) {
+          delete state.tabIncognitoSiteFonts[targetHost];
+        } else if (request.rule === null || (request.rule && SHARED.isSiteFontRuleEmpty(request.rule))) {
+          state.tabIncognitoSiteFonts[targetHost] = null;
+        } else if (request.rule && typeof request.rule === 'object') {
+          state.tabIncognitoSiteFonts[targetHost] = SHARED.createSiteFontRule(request.rule);
+        } else {
+          delete state.tabIncognitoSiteFonts[targetHost];
+        }
+      }
+      syncStateMachine();
+      sendResponse({
+        ok: true,
+        activeSiteFontRule: resolveActiveSiteFontRule(),
       });
       return undefined;
     }
@@ -1725,6 +2331,7 @@
     state.disposed = true;
     deactivate();
     unregisterPipEnterListener();
+    unregisterPageShowListener();
 
     trackedPipDocuments.forEach(function (pipDoc) {
       cleanupPipDocument(pipDoc);
@@ -1767,13 +2374,16 @@
       return classifyElementsBatch([el], targetDoc || document, allowPending !== false);
     },
     getState: function () {
+      var effective = getEffectiveFontSettings();
       return {
         disposed: state.disposed,
         active: state.active,
         storageReady: state.storageReady,
         isEnabled: state.isEnabled,
-        fontMode: state.fontMode,
-        selectedFont: state.selectedFont,
+        fontMode: effective.fontMode,
+        selectedFont: effective.selectedFont,
+        advancedFontConfig: SHARED.createAdvancedFontConfig(effective.advancedFontConfig),
+        activeSiteFontRule: resolveActiveSiteFontRule(),
         isSiteDisabled: computeEffectiveSiteDisabled(),
         tabIncognitoOverride: state.tabIncognitoOverride,
         frameKeys: frameSiteInfo.keys.slice(),
@@ -1788,6 +2398,7 @@
 
   cleanupLegacyOnBoot();
   registerPipEnterListener();
+  registerPageShowListener();
 
   if (chrome.storage && chrome.storage.onChanged &&
       typeof chrome.storage.onChanged.addListener === 'function') {
@@ -1797,6 +2408,25 @@
     chrome.runtime.onMessage.addListener(handleRuntimeMessage);
   }
 
+  function applyIncognitoTabStateSnapshot(incState) {
+    if (!incState || typeof incState !== 'object') return;
+    if (typeof incState.disabled === 'boolean' || incState.disabled === null) {
+      if (incState.disabled !== null) {
+        state.tabIncognitoOverride = incState.disabled;
+      }
+    }
+    if (incState.siteFonts && typeof incState.siteFonts === 'object') {
+      var hosts = Object.keys(incState.siteFonts);
+      for (var i = 0; i < hosts.length; i++) {
+        var h = hosts[i];
+        var val = incState.siteFonts[h];
+        state.tabIncognitoSiteFonts[h] = val && !SHARED.isSiteFontRuleEmpty(val)
+          ? SHARED.createSiteFontRule(val)
+          : null;
+      }
+    }
+  }
+
   if (chrome.storage && chrome.storage.sync && typeof chrome.storage.sync.get === 'function') {
     chrome.storage.sync.get(buildRelevantSyncKeys(), function (items) {
       if (!isAlive()) return;
@@ -1804,6 +2434,25 @@
       runTopFrameLegacyMigration();
       state.storageReady = true;
       syncStateMachine();
+
+      if (IS_INCOGNITO && typeof chrome.runtime.sendMessage === 'function') {
+        try {
+          var incRes = chrome.runtime.sendMessage(
+            { action: SHARED.MSG_ACTIONS.GET_TAB_INCOGNITO_STATE },
+            function (resp) {
+              if (!isAlive()) return;
+              if (chrome.runtime && chrome.runtime.lastError) return;
+              if (resp && resp.state) {
+                applyIncognitoTabStateSnapshot(resp.state);
+                syncStateMachine();
+              }
+            }
+          );
+          if (incRes && typeof incRes.catch === 'function') incRes.catch(function () {});
+        } catch (_e) {
+          // Ignore messaging errors when background is absent in tests.
+        }
+      }
     });
   }
 })(typeof globalThis !== 'undefined' ? globalThis : this);

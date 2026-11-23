@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.1 - 2026-11-23
+
+- **Fix Gemini / SPA `loadingdone` infinite loop in `CJK / Latin split` mode (`extension/content.js`)**:
+  - Separated `@font-face` declarations (`FontChangerCjk` / `FontChangerLatin`) into a dedicated, permanently-enabled `CSSStyleSheet` (`fontFaceSheet`) in `document.adoptedStyleSheets` (and fallback `<style>`) so `setActiveSheetsDisabled(true/false)` during icon probing only toggles selector rules and never unregisters/re-registers extension `@font-face`s or fires synthetic `document.fonts` `loadingdone` events.
+  - Updated `handleStylesheetOrFontLoaded` to ignore `loadingdone` batches containing only extension-owned (`FontChangerCjk`, `FontChangerLatin`, `__fc_probe`) or already-seen `FontFace`s before touching `pendingTimeoutTimer` or re-scanning, and replaced global `pendingFontDeadline` resets with a per-element `pendingDeadlineMap` so pending elements converge reliably within `500ms`.
+  - Allowed `evaluatePseudo` and `computeElementClassification` to fall through to Signal 2/3 icon protection (`Google Symbols`, `Luminous Symbols`, etc.) once an element's pending hold expires, preventing unused unloaded font subsets from stripping icon protection.
+  - Guarded `triggerLocalSlotProbesIfNeeded` so async slot probing never attaches stylesheets prematurely before `performActivePass()` completes the initial `DOMContentLoaded` / `120ms` hold.
+
 ## 2.1.0 - 2026-11-22
 
 - **Per-Site Custom Fonts (`siteFont:<host>`)**:

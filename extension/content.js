@@ -122,16 +122,18 @@
   var pipDocMeta = new WeakMap();
   var rootSheetMap = new WeakMap();
   var pendingElements = new Set();
+  var pendingDeadlineMap = new WeakMap();
   var pendingDeferredRoots = new Set();
   var knownStylesheetLinks = new WeakSet();
 
   var mainDocObserver = null;
   var initialReadyTimer = null;
+  var initialPassPending = false;
   var pendingTimeoutTimer = null;
+  var pendingTimeoutDeadline = 0;
   var fontRescanTimer = null;
   var deferredRescanTimer = null;
   var deferredRescanMaxWaitTimer = null;
-  var pendingFontDeadline = 0;
   var probeSeq = 0;
   var measureCtx = null;
   var cachedBodyPrimary = null;
@@ -139,6 +141,12 @@
   var pageShowBound = false;
   var activeListenersAttached = false;
   var domContentLoadedHandler = null;
+  function getNowMs() {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      return performance.now();
+    }
+    return Date.now();
+  }
 
   function isAlive() {
     if (state.disposed) return false;
@@ -231,6 +239,43 @@
     });
   }
 
+  function buildFontFaceCss() {
+    if (!isEffectivelyEnabled()) {
+      return '';
+    }
+
+    var effective = getEffectiveFontSettings();
+    if (effective.fontMode !== SHARED.FONT_MODE_ADVANCED) {
+      return '';
+    }
+
+    var parts = [];
+    var cfg = effective.advancedFontConfig;
+    if (cfg.cjkFont || cfg.cjkFontId) {
+      parts.push(
+        SHARED.buildRestrictedFontFaceSetCss(
+          SHARED.CJK_FONT_FAMILY,
+          cfg.cjkFont,
+          cfg.cjkFontId,
+          SHARED.CJK_UNICODE_RANGE,
+          getSlotSnapshot(cfg.cjkFont, cfg.cjkFontId)
+        )
+      );
+    }
+    if (cfg.latinFont || cfg.latinFontId) {
+      parts.push(
+        SHARED.buildRestrictedFontFaceSetCss(
+          SHARED.LATIN_FONT_FAMILY,
+          cfg.latinFont,
+          cfg.latinFontId,
+          SHARED.buildNonCjkUnicodeRange(SHARED.CJK_UNICODE_RANGE),
+          getSlotSnapshot(cfg.latinFont, cfg.latinFontId)
+        )
+      );
+    }
+    return parts.join('');
+  }
+
   function buildRulesCss(isShadowRoot) {
     if (!isEffectivelyEnabled()) {
       return '';
@@ -238,32 +283,6 @@
 
     var effective = getEffectiveFontSettings();
     var parts = [];
-    if (effective.fontMode === SHARED.FONT_MODE_ADVANCED) {
-      var cfg = effective.advancedFontConfig;
-      if (cfg.cjkFont || cfg.cjkFontId) {
-        parts.push(
-          SHARED.buildRestrictedFontFaceSetCss(
-            SHARED.CJK_FONT_FAMILY,
-            cfg.cjkFont,
-            cfg.cjkFontId,
-            SHARED.CJK_UNICODE_RANGE,
-            getSlotSnapshot(cfg.cjkFont, cfg.cjkFontId)
-          )
-        );
-      }
-      if (cfg.latinFont || cfg.latinFontId) {
-        parts.push(
-          SHARED.buildRestrictedFontFaceSetCss(
-            SHARED.LATIN_FONT_FAMILY,
-            cfg.latinFont,
-            cfg.latinFontId,
-            SHARED.buildNonCjkUnicodeRange(SHARED.CJK_UNICODE_RANGE),
-            getSlotSnapshot(cfg.latinFont, cfg.latinFontId)
-          )
-        );
-      }
-    }
-
     var fontStack = SHARED.getFontStack(
       effective.fontMode,
       effective.selectedFont,
@@ -359,7 +378,13 @@
     if (supportsAdoptedSheets(root, win)) {
       if (!existing || existing.isFallbackElement) {
         var sheet = new win.CSSStyleSheet();
-        existing = { sheet: sheet, isFallbackElement: false };
+        existing = {
+          sheet: sheet,
+          rulesCssText: '',
+          fontFaceSheet: null,
+          fontFaceCssText: '',
+          isFallbackElement: false,
+        };
         rootSheetMap.set(root, existing);
       }
       return existing;
@@ -368,31 +393,88 @@
       var doc = root.ownerDocument || (root.createElement ? root : document);
       var styleEl = doc.createElement('style');
       styleEl.setAttribute('data-fc-style', '1');
-      existing = { element: styleEl, isFallbackElement: true };
+      existing = {
+        element: styleEl,
+        rulesCssText: '',
+        fontFaceElement: null,
+        isFallbackElement: true,
+      };
       rootSheetMap.set(root, existing);
     }
     return existing;
   }
 
-  function attachSheetToRoot(root, cssText) {
+  function applySheetCssText(sheet, cssText) {
+    if (typeof sheet.replaceSync === 'function') {
+      sheet.replaceSync(cssText);
+    } else {
+      sheet.cssText = cssText;
+    }
+  }
+
+  function attachSheetToRoot(root, rulesCss, fontFaceCss) {
     if (!root) return;
+    var ffCss = fontFaceCss || '';
     var entry = getOrCreateRootSheet(root);
     if (!entry.isFallbackElement) {
-      if (typeof entry.sheet.replaceSync === 'function') {
-        entry.sheet.replaceSync(cssText);
-      } else {
-        entry.sheet.cssText = cssText;
+      var win = getOwningWindow(root);
+      if (ffCss) {
+        if (!entry.fontFaceSheet) {
+          entry.fontFaceSheet = new win.CSSStyleSheet();
+        }
+        if (entry.fontFaceCssText !== ffCss) {
+          applySheetCssText(entry.fontFaceSheet, ffCss);
+          entry.fontFaceCssText = ffCss;
+        }
+        if (root.adoptedStyleSheets.indexOf(entry.fontFaceSheet) === -1) {
+          root.adoptedStyleSheets = root.adoptedStyleSheets.concat([entry.fontFaceSheet]);
+        }
+      } else if (entry.fontFaceSheet) {
+        if (Array.isArray(root.adoptedStyleSheets)) {
+          root.adoptedStyleSheets = root.adoptedStyleSheets.filter(function (s) {
+            return s !== entry.fontFaceSheet;
+          });
+        }
+        entry.fontFaceSheet = null;
+        entry.fontFaceCssText = '';
+      }
+
+      if (entry.rulesCssText !== rulesCss) {
+        applySheetCssText(entry.sheet, rulesCss);
+        entry.rulesCssText = rulesCss;
       }
       if (root.adoptedStyleSheets.indexOf(entry.sheet) === -1) {
         root.adoptedStyleSheets = root.adoptedStyleSheets.concat([entry.sheet]);
       }
       return;
     }
-    var styleEl = entry.element;
-    if (styleEl.textContent !== cssText) {
-      styleEl.textContent = cssText;
-    }
+
     var target = isShadowRootRoot(root) ? root : (root.head || root.documentElement);
+    if (ffCss) {
+      if (!entry.fontFaceElement) {
+        var doc = root.ownerDocument || (root.createElement ? root : document);
+        var ffEl = doc.createElement('style');
+        ffEl.setAttribute('data-fc-style', '1');
+        entry.fontFaceElement = ffEl;
+      }
+      if (entry.fontFaceElement.textContent !== ffCss) {
+        entry.fontFaceElement.textContent = ffCss;
+      }
+      if (target && !entry.fontFaceElement.parentNode) {
+        target.appendChild(entry.fontFaceElement);
+      }
+    } else if (entry.fontFaceElement) {
+      if (entry.fontFaceElement.parentNode) {
+        entry.fontFaceElement.parentNode.removeChild(entry.fontFaceElement);
+      }
+      entry.fontFaceElement = null;
+    }
+
+    var styleEl = entry.element;
+    if (styleEl.textContent !== rulesCss) {
+      styleEl.textContent = rulesCss;
+      entry.rulesCssText = rulesCss;
+    }
     if (target && !styleEl.parentNode) {
       target.appendChild(styleEl);
     }
@@ -404,15 +486,21 @@
     if (entry) {
       if (!entry.isFallbackElement) {
         if (Array.isArray(root.adoptedStyleSheets)) {
-          var idx = root.adoptedStyleSheets.indexOf(entry.sheet);
-          if (idx !== -1) {
+          var hasRules = root.adoptedStyleSheets.indexOf(entry.sheet) !== -1;
+          var hasFonts = Boolean(entry.fontFaceSheet && root.adoptedStyleSheets.indexOf(entry.fontFaceSheet) !== -1);
+          if (hasRules || hasFonts) {
             root.adoptedStyleSheets = root.adoptedStyleSheets.filter(function (s) {
-              return s !== entry.sheet;
+              return s !== entry.sheet && s !== entry.fontFaceSheet;
             });
           }
         }
-      } else if (entry.element && entry.element.parentNode) {
-        entry.element.parentNode.removeChild(entry.element);
+      } else {
+        if (entry.element && entry.element.parentNode) {
+          entry.element.parentNode.removeChild(entry.element);
+        }
+        if (entry.fontFaceElement && entry.fontFaceElement.parentNode) {
+          entry.fontFaceElement.parentNode.removeChild(entry.fontFaceElement);
+        }
       }
       rootSheetMap.delete(root);
     }
@@ -492,22 +580,23 @@
 
   function syncActiveStyleSheets() {
     if (!isEffectivelyEnabled()) return;
+    var fontFaceCss = buildFontFaceCss();
     var docCss = buildRulesCss(false);
     var shadowCss = buildRulesCss(true);
 
     if (typeof document !== 'undefined' && document) {
-      attachSheetToRoot(document, docCss);
+      attachSheetToRoot(document, docCss, fontFaceCss);
     }
     trackedPipDocuments.forEach(function (pipDoc) {
       if (pipDoc) {
-        attachSheetToRoot(pipDoc, docCss);
+        attachSheetToRoot(pipDoc, docCss, fontFaceCss);
       }
     });
     pruneTrackedShadowRoots();
     trackedShadowRoots.forEach(function (ref) {
       var sr = ref.deref();
       if (sr) {
-        attachSheetToRoot(sr, shadowCss);
+        attachSheetToRoot(sr, shadowCss, '');
       }
     });
   }
@@ -632,16 +721,17 @@
     return faces;
   }
 
-  function hasPendingWebFont(familyName, targetDoc, fontIndex, sampleText) {
+  function findAndTriggerPendingWebFonts(familyName, targetDoc, fontIndex, sampleText) {
     var faces = getFontFacesForFamily(familyName, targetDoc, fontIndex);
-    var hasPending = false;
+    var pendingFaces = null;
     for (var i = 0; i < faces.length; i++) {
       var face = faces[i];
       if (face.status === 'unloaded' || face.status === 'loading') {
         if (sampleText && !faceRangeMatchesText(face, sampleText)) {
           continue;
         }
-        hasPending = true;
+        if (!pendingFaces) pendingFaces = [];
+        pendingFaces.push(face);
         if (!loadedTriggeredFaces.has(face) && typeof face.load === 'function') {
           loadedTriggeredFaces.add(face);
           try {
@@ -652,7 +742,7 @@
         }
       }
     }
-    return hasPending;
+    return pendingFaces;
   }
 
   function getLoadedWebFontFamilies(targetDoc, fontIndex) {
@@ -877,7 +967,51 @@
     }
   }
 
-  function evaluatePseudo(el, pseudoName, targetDoc, fontIndex, preReadContent) {
+  function getHoldablePendingFaces(el, slotKey, pendingFaces, allowPendingHold, now) {
+    if (!allowPendingHold || !pendingFaces || !pendingFaces.length) return null;
+    var entry = pendingDeadlineMap.get(el);
+    var slotMap = entry && entry.slotDeadlines[slotKey];
+    if (!slotMap) return pendingFaces;
+    var holdable = null;
+    for (var i = 0; i < pendingFaces.length; i++) {
+      var face = pendingFaces[i];
+      var deadline = slotMap.get(face);
+      if (!deadline || now < deadline) {
+        if (!holdable) holdable = [];
+        holdable.push(face);
+      }
+    }
+    return holdable;
+  }
+
+  function recordPendingDeadlines(el, slotKey, pendingFaces, now) {
+    if (!pendingFaces || !pendingFaces.length) return Infinity;
+    var entry = pendingDeadlineMap.get(el);
+    if (!entry) {
+      entry = { slotDeadlines: Object.create(null), currentDeadline: 0 };
+      pendingDeadlineMap.set(el, entry);
+    }
+    var slotMap = entry.slotDeadlines[slotKey];
+    if (!slotMap) {
+      slotMap = new WeakMap();
+      entry.slotDeadlines[slotKey] = slotMap;
+    }
+    var earliest = Infinity;
+    for (var i = 0; i < pendingFaces.length; i++) {
+      var face = pendingFaces[i];
+      var deadline = slotMap.get(face);
+      if (!deadline) {
+        deadline = Math.ceil((now + PENDING_FONT_TIMEOUT_MS) / 50) * 50;
+        slotMap.set(face, deadline);
+      }
+      if (deadline < earliest) {
+        earliest = deadline;
+      }
+    }
+    return earliest;
+  }
+
+  function evaluatePseudo(el, pseudoName, targetDoc, fontIndex, preReadContent, allowPendingHold, now) {
     var cs = getComputedStyleSafe(el, pseudoName);
     if (!cs) return null;
     var contentText = preReadContent !== undefined ? preReadContent : parsePseudoContent(cs.content);
@@ -887,9 +1021,14 @@
     var families = SHARED.parseFontFamilyList(fontFamily);
     var primary = families.length ? families[0] : '';
     var puaHit = SHARED.PUA_REGEX.test(contentText);
+    var slotKey = pseudoName;
 
-    if (!puaHit && primary && hasPendingWebFont(primary, targetDoc, fontIndex, contentText)) {
-      return { pending: true };
+    if (!puaHit && primary) {
+      var pseudoPendingFaces = findAndTriggerPendingWebFonts(primary, targetDoc, fontIndex, contentText);
+      var holdablePseudoFaces = getHoldablePendingFaces(el, slotKey, pseudoPendingFaces, allowPendingHold, now);
+      if (holdablePseudoFaces) {
+        return { pending: true, faces: holdablePseudoFaces };
+      }
     }
 
     if (puaHit) {
@@ -906,7 +1045,7 @@
     return null;
   }
 
-  function computeElementClassification(item, targetDoc, allowPendingHold, fontIndex) {
+  function computeElementClassification(item, targetDoc, allowPendingHold, fontIndex, batchNow) {
     var el = item.el;
     var cs = getComputedStyleSafe(el);
     if (!cs) return null;
@@ -920,15 +1059,16 @@
     var hostText = item.hostText;
     var hasHostText = item.hasHostText;
     var hostVisibleContent = item.hostVisibleContent;
+    var now = batchNow !== undefined ? batchNow : getNowMs();
 
     var beforeRes = item.hasBeforeContent
-      ? evaluatePseudo(el, '::before', doc, fontIndex, item.beforeContent)
+      ? evaluatePseudo(el, '::before', doc, fontIndex, item.beforeContent, allowPendingHold, now)
       : null;
     var afterRes = item.hasAfterContent
-      ? evaluatePseudo(el, '::after', doc, fontIndex, item.afterContent)
+      ? evaluatePseudo(el, '::after', doc, fontIndex, item.afterContent, allowPendingHold, now)
       : null;
 
-    var hostPending = false;
+    var hostPendingFaces = null;
     var hostIcon = null;
 
     if (hasHostText) {
@@ -937,24 +1077,40 @@
         hostIcon = { font: fontFamily, ligature: false };
       } else {
         var normHost = isAsciiLigatureCandidateText(hostText);
-        if (primary && (normHost || ICON_KEYWORD_REGEX.test(primary)) &&
-            hasPendingWebFont(primary, doc, fontIndex, hostText)) {
-          hostPending = true;
-        } else if (hasSignal2IconFont(primary)) {
-          hostIcon = { font: fontFamily, ligature: Boolean(normHost) };
-        } else if (normHost && isSignal3Ligature(normHost, fontFamily, doc, fontIndex)) {
-          hostIcon = { font: fontFamily, ligature: true };
+        if (primary && (normHost || ICON_KEYWORD_REGEX.test(primary))) {
+          var matchingHostFaces = findAndTriggerPendingWebFonts(primary, doc, fontIndex, hostText);
+          hostPendingFaces = getHoldablePendingFaces(el, 'host', matchingHostFaces, allowPendingHold, now);
+        }
+        if (!hostPendingFaces) {
+          if (hasSignal2IconFont(primary)) {
+            hostIcon = { font: fontFamily, ligature: Boolean(normHost) };
+          } else if (normHost && isSignal3Ligature(normHost, fontFamily, doc, fontIndex)) {
+            hostIcon = { font: fontFamily, ligature: true };
+          }
         }
       }
     }
 
-    var anyPending = hostPending || Boolean(beforeRes && beforeRes.pending) || Boolean(afterRes && afterRes.pending);
-    if (anyPending && allowPendingHold && (!pendingFontDeadline || Date.now() < pendingFontDeadline)) {
+    var anyPending = Boolean(hostPendingFaces) || Boolean(beforeRes && beforeRes.pending) || Boolean(afterRes && afterRes.pending);
+    if (anyPending && allowPendingHold) {
+      var earliest = Infinity;
+      if (hostPendingFaces) {
+        earliest = Math.min(earliest, recordPendingDeadlines(el, 'host', hostPendingFaces, now));
+      }
+      if (beforeRes && beforeRes.pending) {
+        earliest = Math.min(earliest, recordPendingDeadlines(el, '::before', beforeRes.faces, now));
+      }
+      if (afterRes && afterRes.pending) {
+        earliest = Math.min(earliest, recordPendingDeadlines(el, '::after', afterRes.faces, now));
+      }
+      var deadlineEntry = pendingDeadlineMap.get(el);
+      if (deadlineEntry && earliest < Infinity) {
+        deadlineEntry.currentDeadline = earliest;
+      }
       var pendingAttrs = Object.create(null);
       pendingAttrs[SHARED.ACTIVE_DOM_ATTRS.PENDING] = '1';
       return { el: el, isPending: true, addedFontRule: false, nextAttrs: pendingAttrs };
     }
-
     var nextAttrs = Object.create(null);
     var addedFontRule = false;
     var hostPinned = false;
@@ -1064,19 +1220,54 @@
     });
   }
 
-  function schedulePendingFallbackTimer() {
-    if (pendingTimeoutTimer) return;
-    if (!pendingFontDeadline) {
-      pendingFontDeadline = Date.now() + PENDING_FONT_TIMEOUT_MS;
+  function clearPendingFallbackTimer() {
+    if (pendingTimeoutTimer) {
+      clearTimeout(pendingTimeoutTimer);
+      pendingTimeoutTimer = null;
     }
-    var remaining = Math.max(0, pendingFontDeadline - Date.now());
+    pendingTimeoutDeadline = 0;
+  }
+
+  function schedulePendingFallbackTimer() {
+    if (pendingElements.size === 0) return;
+    var now = getNowMs();
+    var earliestDeadline = now + PENDING_FONT_TIMEOUT_MS;
+    pendingElements.forEach(function (el) {
+      var entry = pendingDeadlineMap.get(el);
+      var d = entry && entry.currentDeadline;
+      if (d && d < earliestDeadline) {
+        earliestDeadline = d;
+      }
+    });
+    if (pendingTimeoutTimer) {
+      if (pendingTimeoutDeadline && earliestDeadline >= pendingTimeoutDeadline) {
+        return;
+      }
+      clearPendingFallbackTimer();
+    }
+    pendingTimeoutDeadline = earliestDeadline;
+    var remaining = Math.max(0, earliestDeadline - now);
     pendingTimeoutTimer = setTimeout(function () {
       pendingTimeoutTimer = null;
+      pendingTimeoutDeadline = 0;
       if (!isAlive() || !state.active) return;
       if (pendingElements.size > 0) {
-        var batch = Array.from(pendingElements);
-        pendingElements.clear();
-        classifyElementsGroupedByDoc(batch, false);
+        var nowAtFire = getNowMs();
+        var expired = [];
+        pendingElements.forEach(function (el) {
+          var entry = pendingDeadlineMap.get(el);
+          var d = entry && entry.currentDeadline;
+          if (!d || nowAtFire >= d) {
+            expired.push(el);
+            pendingElements.delete(el);
+          }
+        });
+        if (expired.length > 0) {
+          classifyElementsGroupedByDoc(expired, true);
+        }
+        if (pendingElements.size > 0) {
+          schedulePendingFallbackTimer();
+        }
       }
     }, remaining);
   }
@@ -1095,6 +1286,7 @@
       if (isSkippedTag(el)) {
         if (hasAnyFcAttr(el)) skipClearList.push(el);
         pendingElements.delete(el);
+        pendingDeadlineMap.delete(el);
         continue;
       }
 
@@ -1151,8 +1343,9 @@
     var computedResults = [];
     try {
       // Phase 1: Pure read pass against unpolluted styles.
+      var batchNow = getNowMs();
       for (var p = 0; p < probeList.length; p++) {
-        var res = computeElementClassification(probeList[p], doc, allowPendingHold, fontIndex);
+        var res = computeElementClassification(probeList[p], doc, allowPendingHold, fontIndex, batchNow);
         if (res) {
           if (res.addedFontRule) needsSheetUpdate = true;
           computedResults.push(res);
@@ -1599,7 +1792,7 @@
     var obs = state.active ? createDebouncedMutationObserver(shadowRoot, ref, handleMutationBatch) : null;
     shadowRootMeta.set(shadowRoot, { ref: ref, observer: obs });
     if (state.active) {
-      attachSheetToRoot(shadowRoot, buildRulesCss(true));
+      attachSheetToRoot(shadowRoot, buildRulesCss(true), '');
       scanRootTree(shadowRoot, true);
     }
   }
@@ -1735,7 +1928,7 @@
   function activatePipDocument(pipDoc, pipWin) {
     if (!pipDoc || !isEffectivelyEnabled()) return;
     copyFontResourcesToPip(document, pipDoc);
-    attachSheetToRoot(pipDoc, buildRulesCss(false));
+    attachSheetToRoot(pipDoc, buildRulesCss(false), buildFontFaceCss());
     scanRootTree(pipDoc, true);
     var meta = pipDocMeta.get(pipDoc) || {};
     meta.win = pipWin || meta.win || pipDoc.defaultView;
@@ -1790,7 +1983,6 @@
     fontRescanTimer = setTimeout(function () {
       fontRescanTimer = null;
       if (!isAlive() || !state.active) return;
-      pendingFontDeadline = Date.now() + PENDING_FONT_TIMEOUT_MS;
       scanRootTree(document, true);
       trackedPipDocuments.forEach(function (pipDoc) {
         scanRootTree(pipDoc, true);
@@ -1800,22 +1992,9 @@
 
   function handleStylesheetOrFontLoaded(event) {
     if (!isAlive() || !state.active) return;
-    ligatureRatioCache.clear();
-    cachedBodyPrimary = null;
-    if (pendingTimeoutTimer) {
-      clearTimeout(pendingTimeoutTimer);
-      pendingTimeoutTimer = null;
-    }
 
     var isLoadingDone = Boolean(event && event.type === 'loadingdone');
     var loadedFaces = isLoadingDone && Array.isArray(event.fontfaces) ? event.fontfaces : null;
-
-    if (pendingElements.size > 0) {
-      var pendingBatch = Array.from(pendingElements);
-      pendingElements.clear();
-      pendingFontDeadline = Date.now() + PENDING_FONT_TIMEOUT_MS;
-      classifyElementsGroupedByDoc(pendingBatch, true);
-    }
 
     if (isLoadingDone && loadedFaces) {
       var cjkName = SHARED.CJK_FONT_FAMILY.toLowerCase();
@@ -1833,13 +2012,29 @@
           hasNewFace = true;
         }
       }
-      if (hasNewFace) {
-        scheduleDebouncedFullRescan();
+      if (!hasNewFace) {
+        return;
       }
+      ligatureRatioCache.clear();
+      cachedBodyPrimary = null;
+      clearPendingFallbackTimer();
+      if (pendingElements.size > 0) {
+        var pendingBatch = Array.from(pendingElements);
+        pendingElements.clear();
+        classifyElementsGroupedByDoc(pendingBatch, true);
+      }
+      scheduleDebouncedFullRescan();
       return;
     }
 
-    pendingFontDeadline = Date.now() + PENDING_FONT_TIMEOUT_MS;
+    ligatureRatioCache.clear();
+    cachedBodyPrimary = null;
+    clearPendingFallbackTimer();
+    if (pendingElements.size > 0) {
+      var nonFaceBatch = Array.from(pendingElements);
+      pendingElements.clear();
+      classifyElementsGroupedByDoc(nonFaceBatch, true);
+    }
     scanRootTree(document, true);
     trackedPipDocuments.forEach(function (pipDoc) {
       scanRootTree(pipDoc, true);
@@ -1891,7 +2086,7 @@
     if (!tasks.length) return;
     var seq = ++probeSeq;
     Promise.all(tasks).then(function () {
-      if (!isAlive() || !state.active || seq !== probeSeq) return;
+      if (!isAlive() || !state.active || seq !== probeSeq || initialPassPending) return;
       var sig = computeStateSignature();
       if (sig !== state.appliedSignature) {
         state.appliedSignature = sig;
@@ -1902,6 +2097,8 @@
 
   function performActivePass() {
     if (!isAlive() || !state.active) return;
+    initialPassPending = false;
+    state.appliedSignature = computeStateSignature();
     syncActiveStyleSheets();
     scanRootTree(document, true);
     if (!mainDocObserver && typeof document !== 'undefined') {
@@ -1921,10 +2118,7 @@
       clearTimeout(initialReadyTimer);
       initialReadyTimer = null;
     }
-    if (pendingTimeoutTimer) {
-      clearTimeout(pendingTimeoutTimer);
-      pendingTimeoutTimer = null;
-    }
+    clearPendingFallbackTimer();
     if (fontRescanTimer) {
       clearTimeout(fontRescanTimer);
       fontRescanTimer = null;
@@ -1938,9 +2132,9 @@
       deferredRescanMaxWaitTimer = null;
     }
     pendingElements.clear();
+    pendingDeadlineMap = new WeakMap();
     pendingDeferredRoots.clear();
-    pendingFontDeadline = 0;
-    seenLoadedFaces = new WeakSet();
+    initialPassPending = false;
     parsedUnicodeRangeCache.clear();
 
     detachActiveEnvironmentListeners();
@@ -1990,10 +2184,10 @@
     var wasActive = state.active;
     state.active = true;
     state.appliedSignature = nextSig;
-    pendingFontDeadline = Date.now() + PENDING_FONT_TIMEOUT_MS;
     attachActiveEnvironmentListeners();
 
     if (!wasActive && typeof document !== 'undefined' && document.readyState === 'loading') {
+      initialPassPending = true;
       if (!initialReadyTimer) {
         var settled = false;
         var runOnce = function (fromDcl) {
@@ -2026,6 +2220,8 @@
       triggerLocalSlotProbesIfNeeded();
       return;
     }
+
+    initialPassPending = false;
 
     performActivePass();
   }
@@ -2368,7 +2564,8 @@
       if (isAlive()) deactivate();
     },
     buildCss: function (isShadow) {
-      return buildRulesCss(Boolean(isShadow));
+      var isSr = Boolean(isShadow);
+      return isSr ? buildRulesCss(true) : (buildFontFaceCss() + buildRulesCss(false));
     },
     classifyElement: function (el, targetDoc, allowPending) {
       return classifyElementsBatch([el], targetDoc || document, allowPending !== false);

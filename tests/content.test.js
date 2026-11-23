@@ -418,7 +418,7 @@ test('High-frequency style and large-container class mutations bound traversal a
   assert.equal(disabledWrites, 0);
 });
 
-test('hasPendingWebFont skips unrelated unicode-range slices and repeat loadingdone avoids redundant full scans', async () => {
+test('findAndTriggerPendingWebFonts skips unrelated unicode-range slices and repeat loadingdone avoids redundant full scans', async () => {
   const cyrillicSlice = {
     family: '"Noto Sans TC"',
     status: 'unloaded',
@@ -766,4 +766,312 @@ test('Incognito Use global suppresses synced site rule, preserves iframe host pr
   ]);
   await new Promise((r) => setTimeout(r, 90));
   assert.ok(ico.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT));
+});
+
+test('Advanced mode isolates @font-face sheet from disabled toggling and converges pending Signal 2 icons without loadingdone loop', async () => {
+  const env = loadContentEnvironment({
+    syncStorage: {
+      isEnabled: true,
+      selectedFont: '',
+      fontMode: 'advanced',
+      advancedFontConfig: {
+        cjkFont: 'PingFang TC',
+        cjkFontId: 'PingFang TC',
+        latinFont: 'Arial',
+        latinFontId: 'Arial',
+      },
+    },
+  });
+  const doc = env.dom.document;
+  assert.equal(doc.adoptedStyleSheets.length, 2);
+  const fontFaceSheet = doc.adoptedStyleSheets.find((s) => /@font-face/.test(s.cssText));
+  const rulesSheet = doc.adoptedStyleSheets.find((s) => !/@font-face/.test(s.cssText));
+  assert.ok(fontFaceSheet);
+  assert.ok(rulesSheet);
+
+  let fontFaceDisabledToggles = 0;
+  let rulesDisabledToggles = 0;
+  Object.defineProperty(fontFaceSheet, 'disabled', {
+    get() { return false; },
+    set() { fontFaceDisabledToggles += 1; },
+  });
+  let rulesDisabledVal = false;
+  Object.defineProperty(rulesSheet, 'disabled', {
+    get() { return rulesDisabledVal; },
+    set(v) {
+      rulesDisabledVal = Boolean(v);
+      rulesDisabledToggles += 1;
+    },
+  });
+
+  const subsetFace = {
+    family: '"Google Symbols"',
+    status: 'unloaded',
+    unicodeRange: 'U+0-10FFFF',
+    loadCalls: 0,
+    load() {
+      this.loadCalls += 1;
+      return Promise.resolve(this);
+    },
+  };
+  doc.fontFaces.push(subsetFace);
+
+  const iconEl = doc.createElement('mat-icon');
+  iconEl.rawStyle.fontFamily = '"Google Symbols"';
+  iconEl.textContent = 'subscriptions';
+  doc.body.appendChild(iconEl);
+
+  env.controller().classifyElement(iconEl, doc, true);
+  assert.equal(fontFaceDisabledToggles, 0);
+  assert.equal(rulesDisabledToggles, 2);
+  assert.equal(iconEl.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+
+  // Simulate repeated extension-owned loadingdone events with deterministic mocked clock before 500ms;
+  // they must not trigger redundant rulesSheet toggles or reset the pending deadline.
+  const extFaces = [
+    { family: shared.CJK_FONT_FAMILY, status: 'loaded' },
+    { family: shared.LATIN_FONT_FAMILY, status: 'loaded' },
+  ];
+  for (let i = 0; i < 3; i += 1) {
+    await new Promise((r) => setTimeout(r, 30));
+    doc.triggerLoadingDone({ fontfaces: extFaces });
+  }
+  assert.equal(rulesDisabledToggles, 2);
+
+  // Past 500ms total, fallback timer settles iconEl using Signal 2 protection even while unused subsetFace stays unloaded.
+  await new Promise((r) => setTimeout(r, 470));
+  assert.equal(iconEl.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
+  assert.ok(iconEl.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT));
+  assert.equal(iconEl.getAttribute(shared.ACTIVE_DOM_ATTRS.ICON_LIGATURE), '1');
+
+  // If the SPA later reuses the same element for a different unloaded webfont, it receives its own fresh hold and face.load().
+  const nextFace = {
+    family: '"Brand Icon V2"',
+    status: 'unloaded',
+    unicodeRange: 'U+0-10FFFF',
+    loadCalls: 0,
+    load() {
+      this.loadCalls += 1;
+      return Promise.resolve(this);
+    },
+  };
+  doc.fontFaces.push(nextFace);
+  iconEl.rawStyle.fontFamily = '"Brand Icon V2"';
+  env.controller().classifyElement(iconEl, doc, true);
+  assert.equal(iconEl.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+  assert.equal(nextFace.loadCalls, 1);
+});
+
+test('Per-slot and per-subset pending deadlines preserve overlapping ::before holds and load newly matched unicode-range subsets after timeout', async () => {
+  const faceA = {
+    family: 'LigatureA',
+    status: 'unloaded',
+    unicodeRange: 'U+0-10FFFF',
+    loadCalls: 0,
+    load() {
+      this.loadCalls += 1;
+      return Promise.resolve(this);
+    },
+  };
+  const faceB = {
+    family: 'LigatureB',
+    status: 'unloaded',
+    unicodeRange: 'U+0-10FFFF',
+    loadCalls: 0,
+    load() {
+      this.loadCalls += 1;
+      return Promise.resolve(this);
+    },
+  };
+  const subsetLetters = {
+    family: 'Subsets',
+    status: 'unloaded',
+    unicodeRange: 'U+61-7A',
+    loadCalls: 0,
+    load() {
+      this.loadCalls += 1;
+      return Promise.resolve(this);
+    },
+  };
+  const subsetDigits = {
+    family: 'Subsets',
+    status: 'unloaded',
+    unicodeRange: 'U+30-39',
+    loadCalls: 0,
+    load() {
+      this.loadCalls += 1;
+      return Promise.resolve(this);
+    },
+  };
+
+  const env = loadContentEnvironment({
+    syncStorage: { isEnabled: true, selectedFont: 'Arial' },
+    fontFaces: [faceA, faceB, subsetLetters, subsetDigits],
+  });
+  const doc = env.dom.document;
+
+  const multiSlotEl = doc.createElement('span');
+  multiSlotEl.rawStyle.fontFamily = 'LigatureA';
+  multiSlotEl.textContent = 'aa';
+  doc.body.appendChild(multiSlotEl);
+
+  const subsetEl = doc.createElement('span');
+  subsetEl.rawStyle.fontFamily = 'Subsets';
+  subsetEl.textContent = 'aa';
+  doc.body.appendChild(subsetEl);
+
+  env.controller().classifyElement(multiSlotEl, doc, true);
+  env.controller().classifyElement(subsetEl, doc, true);
+  assert.equal(multiSlotEl.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+  assert.equal(subsetEl.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+  assert.equal(subsetLetters.loadCalls, 1);
+  assert.equal(subsetDigits.loadCalls, 0);
+
+  // Midway through host hold, ::before gets its own pending font.
+  await new Promise((r) => setTimeout(r, 250));
+  multiSlotEl.pseudoStyles['::before'] = { fontFamily: 'LigatureB', content: '"bb"' };
+  env.controller().classifyElement(multiSlotEl, doc, true);
+  assert.equal(faceB.loadCalls, 1);
+
+  // Past host expiry (550ms total) but before ::before expiry (750ms total):
+  // subsetEl settles, while multiSlotEl keeps its ::before hold.
+  await new Promise((r) => setTimeout(r, 310));
+  assert.equal(subsetEl.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
+  assert.equal(multiSlotEl.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+
+  // Reusing subsetEl with text needing a different unicode-range subset loads the new face and grants a fresh hold.
+  subsetEl.textContent = '22';
+  env.controller().classifyElement(subsetEl, doc, true);
+  assert.equal(subsetDigits.loadCalls, 1);
+  assert.equal(subsetEl.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+
+  // Past ::before expiry (~810ms total), multiSlotEl settles cleanly.
+  await new Promise((r) => setTimeout(r, 260));
+  assert.equal(multiSlotEl.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
+});
+
+test('schedulePendingFallbackTimer rearms when a restored element carries an earlier pending deadline', () => {
+  const faceA = { family: 'IconA', status: 'loading', load() { return Promise.resolve(this); } };
+  const faceB = { family: 'IconB', status: 'loading', load() { return Promise.resolve(this); } };
+  const env = loadContentEnvironment({
+    syncStorage: { isEnabled: true, selectedFont: 'Arial' },
+    fontFaces: [faceA, faceB],
+  });
+  const doc = env.dom.document;
+
+  let now = 10;
+  let seq = 0;
+  const queue = new Map();
+  env.sandbox.Date = { now: () => now };
+  env.sandbox.setTimeout = (fn, delay) => {
+    const id = ++seq;
+    queue.set(id, { time: now + delay, fn });
+    return id;
+  };
+  env.sandbox.clearTimeout = (id) => {
+    queue.delete(id);
+  };
+  const advance = (targetTime) => {
+    for (;;) {
+      const next = [...queue.entries()].sort((a, b) => a[1].time - b[1].time)[0];
+      if (!next || next[1].time > targetTime) break;
+      now = next[1].time;
+      queue.delete(next[0]);
+      next[1].fn();
+    }
+    now = targetTime;
+  };
+
+  const elA = doc.createElement('span');
+  elA.rawStyle.fontFamily = 'IconA';
+  elA.textContent = 'home';
+  doc.body.appendChild(elA);
+  env.controller().classifyElement(elA, doc, true); // deadline 550 (510 quantized to 50ms bucket)
+  assert.equal(elA.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), true);
+
+  // Switch away from IconA so elA leaves pendingElements while timer is cleared later.
+  advance(100);
+  elA.rawStyle.fontFamily = 'Arial';
+  env.controller().classifyElement(elA, doc, true);
+  assert.equal(elA.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
+
+  // Clear the old t=550 timer via a font-load event, then arm the shared fallback timer for t=700.
+  advance(200);
+  const elB = doc.createElement('span');
+  elB.rawStyle.fontFamily = 'IconB';
+  elB.textContent = 'menu';
+  doc.body.appendChild(elB);
+  env.controller().classifyElement(elB, doc, true); // deadline 700
+  assert.equal(elB.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), true);
+  doc.triggerLoadingDone({ fontfaces: [{ family: 'LoadedOther', status: 'loaded' }] });
+  advance(350);
+  assert.deepEqual([...queue.values()].map((entry) => entry.time), [700]);
+
+  // elA switches back to IconA at t=400 (restored deadline 550 < 700): timer must rearm from 700 to 550.
+  advance(400);
+  elA.rawStyle.fontFamily = 'IconA';
+  env.controller().classifyElement(elA, doc, true);
+  assert.equal(elA.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), true);
+  assert.deepEqual([...queue.values()].map((entry) => entry.time), [550]);
+
+  // At t=550, elA settles while elB keeps its remaining hold until t=700.
+  advance(550);
+  assert.equal(elA.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
+  assert.equal(elB.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), true);
+  assert.deepEqual([...queue.values()].map((entry) => entry.time), [700]);
+
+  advance(700);
+  assert.equal(elB.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
+});
+
+test('All newly pending elements in one scan batch share a single deadline and settle in one pass', () => {
+  const face = { family: 'BatchIcons', status: 'loading', load() { return Promise.resolve(this); } };
+  const env = loadContentEnvironment({
+    syncStorage: { isEnabled: true, selectedFont: 'Arial' },
+    fontFaces: [face],
+  });
+  const doc = env.dom.document;
+
+  let now = 1000;
+  let spread = false;
+  let seq = 0;
+  const timers = new Map();
+  env.sandbox.Date = { now: () => (spread ? now++ : now) };
+  env.sandbox.setTimeout = (fn, ms) => {
+    timers.set(++seq, { fn, time: now + ms });
+    return seq;
+  };
+  env.sandbox.clearTimeout = (id) => timers.delete(id);
+
+  let toggleCount = 0;
+  let disabledVal = false;
+  Object.defineProperty(doc.adoptedStyleSheets[0], 'disabled', {
+    get() { return disabledVal; },
+    set(v) {
+      disabledVal = Boolean(v);
+      toggleCount += 1;
+    },
+  });
+
+  for (let i = 0; i < 20; i += 1) {
+    const el = doc.createElement('span');
+    el.rawStyle.fontFamily = 'BatchIcons';
+    el.textContent = 'home';
+    doc.body.appendChild(el);
+  }
+
+  spread = true;
+  env.chrome.storage.sync.set({ selectedFont: 'Verdana' });
+  spread = false;
+  const togglesAfterScan = toggleCount;
+  assert.equal(togglesAfterScan, 2);
+
+  while (timers.size > 0) {
+    const [id, job] = timers.entries().next().value;
+    timers.delete(id);
+    now = job.time;
+    job.fn();
+  }
+
+  assert.equal(toggleCount - togglesAfterScan, 2);
 });

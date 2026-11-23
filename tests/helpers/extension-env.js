@@ -358,7 +358,7 @@ function createFakeDom(options = {}) {
 
   function hasActiveSheetOverride(doc) {
     if (!doc || !Array.isArray(doc.adoptedStyleSheets)) return false;
-    return doc.adoptedStyleSheets.some((sheet) => sheet && !sheet.disabled && sheet.cssText.includes('font-family:'));
+    return doc.adoptedStyleSheets.some((sheet) => sheet && !sheet.disabled && sheet.cssText.includes('!important'));
   }
 
   function getComputedStyleFn(el, pseudo) {

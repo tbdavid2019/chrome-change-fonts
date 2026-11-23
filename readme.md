@@ -17,7 +17,11 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`2.1.0`
+目前版本：`2.1.1`
+
+`2.1.1` 修正項目：
+
+- **修正 Gemini 等大型 SPA 在「CJK / 英數分開」模式下的字體重載無限迴圈與上傳卡住問題**：將擴充套件建立的 `@font-face` 宣告抽離至獨立且常駐啟用的 `CSSStyleSheet`，避免偵測圖示時切換 `sheet.disabled` 反覆卸載／重載自訂字體並連續觸發 `document.fonts` `loadingdone`；同步修正 `loadingdone` 過濾順序、單一元素 `500ms` pending 上限收斂，以及逾時後仍以 Signal 2/3 保護 `Google Symbols` / `Luminous Symbols` 等多 subset 圖示字體。
 
 `2.1.0` 新增功能與效能／版面改善：
 

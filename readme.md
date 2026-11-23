@@ -17,7 +17,15 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`2.1.1`
+目前版本：`2.1.2`
+
+`2.1.2` 修正項目：
+
+- **徹底修復動態網頁、AI 串流、捲動與多元件網站上的 Chrome CPU 飆高與 RAM 耗盡問題**：
+  - 嚴格收斂 Phase 0 圖示預篩選與 `STYLE_FONT_OR_VAR_REGEX`，使一般中英文段落、`<code>`/`<pre>` 程式碼區塊、60fps `transform`/`opacity` 動畫與 `--scroll-y` / `--tw-*` CSS 變數變動完全不再觸發 `sheet.disabled` 全頁雙重樣式重算，並於頁面初載先掃描再掛載規則樣式表（初載 0 次切換）。
+  - 重構 `MutationObserver` 為同步萃取目標元素至有上限（`2,500`）之去重集合，立即釋放 `MutationRecord` 與已移除的 `removedNodes` DOM 子樹供 GC 回收，消除 `setTimeout(0)` 連續阻塞風暴。
+  - 同文件下所有 Open `ShadowRoot` 共用單一 `CSSStyleSheet`（如 YouTube 上千個元件從上千份樣式表降為 1 份，開關成本降至 `O(1)`）。
+  - 過濾無關的 CJK `unicode-range` WebFont 子集 `loadingdone` 事件避免捲動時反覆全頁重掃、合併 `<link rel="stylesheet">` 載入防抖、為 `ligatureRatioCache` 加入 `512` 筆 LRU 上限淘汰，並於 `background.js` / `shared.js` 加入跨 iframe 本機字重探測快取與空白 `about:blank` 子框架延遲探測。
 
 `2.1.1` 修正項目：
 

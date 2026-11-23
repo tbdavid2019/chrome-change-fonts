@@ -115,3 +115,97 @@ test('background service worker stores volatile incognito tab overrides and clea
   assert.equal(ctrl.getIncognitoTabState(77), null);
   ctrl.destroy();
 });
+
+test('background service worker caches volatile font slots with sanitization, bounded LRU eviction, and destroy cleanup', () => {
+  const msgListeners = [];
+  const fakeChrome = {
+    runtime: {
+      onMessage: {
+        addListener(fn) { msgListeners.push(fn); },
+        removeListener(fn) {
+          const i = msgListeners.indexOf(fn);
+          if (i !== -1) msgListeners.splice(i, 1);
+        },
+      },
+    },
+    action: {
+      setBadgeText() { return Promise.resolve(); },
+    },
+  };
+
+  const ctrl = bgMod.initBackground(fakeChrome);
+  const dispatch = (req) => {
+    let resp = null;
+    const ret = msgListeners[0](req, {}, (r) => { resp = r; });
+    assert.equal(ret, undefined);
+    return resp;
+  };
+
+  // Cache miss returns null.
+  assert.deepEqual(dispatch({ action: 'getCachedFontSlots', key: 'PingFang TC\0PingFang TC' }), {
+    ok: true,
+    slots: null,
+  });
+
+  // Set sanitizes booleans and strips arbitrary properties.
+  assert.deepEqual(
+    dispatch({
+      action: 'setCachedFontSlots',
+      key: 'PingFang TC\0PingFang TC',
+      slots: { bold: 1, italic: 0, boldItalic: 'yes', extraEvil: 'drop-me' },
+    }),
+    { ok: true }
+  );
+  assert.deepEqual(dispatch({ action: 'getCachedFontSlots', key: 'PingFang TC\0PingFang TC' }), {
+    ok: true,
+    slots: { bold: true, italic: false, boldItalic: true },
+  });
+
+  // Invalid keys or slot payloads are ignored safely.
+  assert.deepEqual(dispatch({ action: 'setCachedFontSlots', key: '', slots: { bold: true } }), { ok: true });
+  assert.deepEqual(dispatch({ action: 'setCachedFontSlots', key: 'BadFont\0', slots: null }), { ok: true });
+  assert.equal(ctrl.getFontSlotsCacheSize(), 1);
+
+  // Fill up to MAX_FONT_SLOTS_CACHE (128), touch oldest entry via GET to promote its LRU position, then insert one more.
+  const cap = bgMod.MAX_FONT_SLOTS_CACHE;
+  for (let i = 1; i < cap; i += 1) {
+    dispatch({
+      action: 'setCachedFontSlots',
+      key: `Font${i}\0Font${i}`,
+      slots: { bold: true, italic: false, boldItalic: false },
+    });
+  }
+  assert.equal(ctrl.getFontSlotsCacheSize(), cap);
+
+  // Touch PingFang TC so Font1 becomes the least-recently-used entry.
+  assert.equal(dispatch({ action: 'getCachedFontSlots', key: 'PingFang TC\0PingFang TC' }).slots.bold, true);
+
+  dispatch({
+    action: 'setCachedFontSlots',
+    key: 'OverflowFont\0OverflowFont',
+    slots: { bold: false, italic: true, boldItalic: false },
+  });
+  assert.equal(ctrl.getFontSlotsCacheSize(), cap);
+  assert.equal(dispatch({ action: 'getCachedFontSlots', key: 'Font1\0Font1' }).slots, null);
+  assert.equal(dispatch({ action: 'getCachedFontSlots', key: 'PingFang TC\0PingFang TC' }).slots.bold, true);
+  assert.equal(dispatch({ action: 'getCachedFontSlots', key: 'OverflowFont\0OverflowFont' }).slots.italic, true);
+
+  // Incognito senders never read or write the shared non-incognito fontSlotsCache.
+  let incGetResp = null;
+  msgListeners[0](
+    { action: 'getCachedFontSlots', key: 'PingFang TC\0PingFang TC' },
+    { tab: { id: 99, incognito: true } },
+    (r) => { incGetResp = r; }
+  );
+  assert.deepEqual(incGetResp, { ok: true, slots: null });
+
+  msgListeners[0](
+    { action: 'setCachedFontSlots', key: 'IncognitoOnly\0IncognitoOnly', slots: { bold: true } },
+    { tab: { id: 99, incognito: true } },
+    () => {}
+  );
+  assert.equal(ctrl.getCachedFontSlots('IncognitoOnly\0IncognitoOnly'), null);
+
+  ctrl.destroy();
+  assert.equal(ctrl.getFontSlotsCacheSize(), 0);
+});

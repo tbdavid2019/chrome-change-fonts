@@ -7,6 +7,9 @@
   var SYNC_BADGE_ACTION = 'syncTabBadge';
   var GET_TAB_INCOGNITO_STATE_ACTION = 'getTabIncognitoState';
   var SYNC_TAB_INCOGNITO_STATE_ACTION = 'syncTabIncognitoState';
+  var GET_CACHED_FONT_SLOTS_ACTION = 'getCachedFontSlots';
+  var SET_CACHED_FONT_SLOTS_ACTION = 'setCachedFontSlots';
+  var MAX_FONT_SLOTS_CACHE = 128;
 
   function updateTabOffBadge(actionApi, tabId, isSiteDisabled) {
     if (!actionApi || typeof actionApi.setBadgeText !== 'function' || typeof tabId !== 'number') {
@@ -38,6 +41,8 @@
 
     // Strictly volatile in-memory store for Incognito tab overrides; never persisted to disk.
     var incognitoTabState = new Map();
+    // Strictly volatile session cache of local OS font weight/style slot availability.
+    var fontSlotsCache = new Map();
 
     function getOrCreateIncognitoEntry(tabId) {
       var entry = incognitoTabState.get(tabId);
@@ -90,6 +95,52 @@
         return undefined;
       }
 
+      var isSenderIncognito = Boolean(sender && sender.tab && sender.tab.incognito);
+
+      if (request.action === GET_CACHED_FONT_SLOTS_ACTION) {
+        var cachedSlots = null;
+        if (!isSenderIncognito && typeof request.key === 'string' && request.key && request.key.length <= 1024) {
+          var foundSlots = fontSlotsCache.get(request.key);
+          if (foundSlots) {
+            // Refresh LRU order on read.
+            fontSlotsCache.delete(request.key);
+            fontSlotsCache.set(request.key, foundSlots);
+            cachedSlots = {
+              bold: foundSlots.bold,
+              italic: foundSlots.italic,
+              boldItalic: foundSlots.boldItalic,
+            };
+          }
+        }
+        if (typeof sendResponse === 'function') {
+          sendResponse({ ok: true, slots: cachedSlots });
+        }
+        return undefined;
+      }
+
+      if (request.action === SET_CACHED_FONT_SLOTS_ACTION) {
+        if (!isSenderIncognito &&
+            typeof request.key === 'string' && request.key && request.key.length <= 1024 &&
+            request.slots && typeof request.slots === 'object') {
+          var sanitizedSlots = Object.freeze({
+            bold: Boolean(request.slots.bold),
+            italic: Boolean(request.slots.italic),
+            boldItalic: Boolean(request.slots.boldItalic),
+          });
+          if (fontSlotsCache.has(request.key)) {
+            fontSlotsCache.delete(request.key);
+          } else if (fontSlotsCache.size >= MAX_FONT_SLOTS_CACHE) {
+            var oldestKey = fontSlotsCache.keys().next().value;
+            fontSlotsCache.delete(oldestKey);
+          }
+          fontSlotsCache.set(request.key, sanitizedSlots);
+        }
+        if (typeof sendResponse === 'function') {
+          sendResponse({ ok: true });
+        }
+        return undefined;
+      }
+
       return undefined;
     }
 
@@ -110,6 +161,12 @@
       getIncognitoTabState: function (tabId) {
         return incognitoTabState.get(tabId) || null;
       },
+      getCachedFontSlots: function (key) {
+        return fontSlotsCache.get(key) || null;
+      },
+      getFontSlotsCacheSize: function () {
+        return fontSlotsCache.size;
+      },
       destroy: function () {
         if (chromeApi.runtime && chromeApi.runtime.onMessage &&
             typeof chromeApi.runtime.onMessage.removeListener === 'function') {
@@ -120,6 +177,7 @@
           chromeApi.tabs.onRemoved.removeListener(onTabRemoved);
         }
         incognitoTabState.clear();
+        fontSlotsCache.clear();
       },
     };
   }
@@ -128,6 +186,7 @@
     BADGE_OFF_TEXT: BADGE_OFF_TEXT,
     BADGE_OFF_BG: BADGE_OFF_BG,
     BADGE_OFF_FG: BADGE_OFF_FG,
+    MAX_FONT_SLOTS_CACHE: MAX_FONT_SLOTS_CACHE,
     updateTabOffBadge: updateTabOffBadge,
     initBackground: initBackground,
   });

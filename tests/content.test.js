@@ -589,8 +589,8 @@ test('Second face of same family after timeout triggers rescan and PiP pending e
   env.controller().classifyElement(ligEl, doc, true);
   assert.equal(ligEl.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
 
-  // Wait past 500ms pending timeout before faceB finishes loading.
-  await new Promise((r) => setTimeout(r, 540));
+  // Wait past 500ms (+ up to 50ms bucket quantization) pending timeout before faceB finishes loading.
+  await new Promise((r) => setTimeout(r, 565));
   assert.equal(ligEl.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
   assert.equal(ligEl.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), false);
 
@@ -1074,4 +1074,102 @@ test('All newly pending elements in one scan batch share a single deadline and s
   }
 
   assert.equal(toggleCount - togglesAfterScan, 2);
+});
+
+test('deactivate -> activate restores ShadowRoot observers/icons, dynamic <link> loads bind & unbind cleanly, PiP observes loadingdone, and 1-char icons stay protected', async () => {
+  const env = loadContentEnvironment({
+    syncStorage: { isEnabled: true, selectedFont: 'Arial' },
+  });
+  const doc = env.dom.document;
+
+  // 1. Existing ShadowRoot with an icon + single-char button icons ('x' and '✕')
+  const host = doc.createElement('div');
+  const sr = host.attachShadow();
+  const shadowIcon = doc.createElement('span');
+  shadowIcon.rawStyle.fontFamily = '"Material Icons", sans-serif';
+  shadowIcon.textContent = 'home';
+  sr.appendChild(shadowIcon);
+  doc.body.appendChild(host);
+
+  const singleCharBtn = doc.createElement('button');
+  singleCharBtn.rawStyle.fontFamily = '"FontAwesome", sans-serif';
+  singleCharBtn.textContent = 'x';
+  doc.body.appendChild(singleCharBtn);
+
+  const dingbatBtn = doc.createElement('button');
+  dingbatBtn.rawStyle.fontFamily = '"Material Symbols Outlined", sans-serif';
+  dingbatBtn.textContent = '✕';
+  doc.body.appendChild(dingbatBtn);
+
+  env.chrome.storage.sync.set({ selectedFont: 'Verdana' });
+  assert.equal(shadowIcon.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), true);
+  assert.equal(singleCharBtn.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), true);
+  assert.equal(dingbatBtn.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), true);
+  assert.equal(env.dom.getObserverStats().activeCount, 2); // doc + sr
+
+  // Toggle off -> Dormant strips attributes & observers; toggle back on -> re-scans & re-attaches ShadowRoot observer!
+  env.chrome.storage.sync.set({ isEnabled: false });
+  assert.equal(env.dom.getObserverStats().activeCount, 0);
+  assert.equal(shadowIcon.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), false);
+
+  env.chrome.storage.sync.set({ isEnabled: true });
+  assert.equal(env.dom.getObserverStats().activeCount, 2);
+  assert.equal(shadowIcon.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), true);
+
+  // Dynamic mutation inside restored ShadowRoot is observed cleanly.
+  const dynShadowIcon = doc.createElement('span');
+  dynShadowIcon.rawStyle.fontFamily = '"Material Icons", sans-serif';
+  dynShadowIcon.textContent = 'search';
+  sr.appendChild(dynShadowIcon);
+  const srObs = env.dom.getObserverStats().activeObservers.find((o) => o.target === sr);
+  assert.ok(srObs);
+  srObs.trigger([{ type: 'childList', target: sr, addedNodes: [dynShadowIcon], removedNodes: [] }]);
+  await new Promise((r) => setTimeout(r, 90));
+  assert.equal(dynShadowIcon.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), true);
+
+  // 2. Dynamically inserted <link rel="stylesheet"> via MutationObserver binds load listener and unbinds on destroy().
+  const dynLink = doc.createElement('link');
+  dynLink.setAttribute('rel', 'stylesheet');
+  dynLink.setAttribute('href', 'late-icons.css');
+  let removedLoadCount = 0;
+  const origRem = dynLink.removeEventListener.bind(dynLink);
+  dynLink.removeEventListener = (type, fn) => {
+    if (type === 'load') removedLoadCount += 1;
+    return origRem(type, fn);
+  };
+  doc.head.appendChild(dynLink);
+  const mainObs = env.dom.getObserverStats().activeObservers.find((o) => o.target === doc.documentElement);
+  mainObs.trigger([{ type: 'childList', target: doc.head, addedNodes: [dynLink], removedNodes: [] }]);
+
+  const lateIcon = doc.createElement('span');
+  lateIcon.rawStyle.fontFamily = '"Material Icons", sans-serif';
+  lateIcon.textContent = 'settings';
+  doc.body.appendChild(lateIcon);
+  dynLink.dispatchEvent('load');
+  await new Promise((r) => setTimeout(r, 160));
+  assert.equal(lateIcon.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), true);
+
+  // 3. Document PiP observes pipDoc.fonts loadingdone directly without waiting 500ms timeout.
+  const pipWin = env.dom.createPipWindow();
+  const pipDelayedFace = {
+    family: '"PipSymbols"',
+    status: 'unloaded',
+    unicodeRange: 'U+0-10FFFF',
+    load() { return Promise.resolve(this); },
+  };
+  pipWin.document.fontFaces.push(pipDelayedFace);
+  const pipIcon = pipWin.document.createElement('span');
+  pipIcon.rawStyle.fontFamily = '"PipSymbols", sans-serif';
+  pipIcon.textContent = 'mic';
+  pipWin.document.body.appendChild(pipIcon);
+  env.window.documentPictureInPicture.triggerEnter(pipWin);
+  assert.equal(pipIcon.getAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), '1');
+
+  pipDelayedFace.status = 'loaded';
+  pipWin.document.triggerLoadingDone({ fontfaces: [pipDelayedFace] });
+  assert.equal(pipIcon.hasAttribute(shared.ACTIVE_DOM_ATTRS.PENDING), false);
+  assert.equal(pipIcon.hasAttribute(shared.ACTIVE_DOM_ATTRS.ICON_FONT), true);
+
+  env.controller().destroy();
+  assert.equal(removedLoadCount, 1);
 });

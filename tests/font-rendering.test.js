@@ -248,7 +248,7 @@ test('extension/ directory contains strictly runtime files with zero tests or de
   ]);
 
   const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_DIR, 'manifest.json'), 'utf8'));
-  assert.equal(manifest.version, '2.1.1');
+  assert.equal(manifest.version, '2.1.2');
   assert.deepEqual(manifest.permissions, ['activeTab', 'storage', 'fontSettings', 'scripting']);
   assert.deepEqual(manifest.content_scripts[0].js, ['shared.js', 'content.js']);
   assert.deepEqual(manifest.background, { service_worker: 'background.js' });

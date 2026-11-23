@@ -211,3 +211,178 @@ test('siteFontRule helpers normalize, detect emptiness, resolve precedence, and 
   assert.equal(resolvedFallback.fontMode, 'basic');
   assert.equal(resolvedFallback.selectedFont, 'Arial');
 });
+
+test('MSG_ACTIONS exposes cross-frame font slot cache actions', () => {
+  assert.equal(shared.MSG_ACTIONS.GET_CACHED_FONT_SLOTS, 'getCachedFontSlots');
+  assert.equal(shared.MSG_ACTIONS.SET_CACHED_FONT_SLOTS, 'setCachedFontSlots');
+});
+
+test('buildNonCjkUnicodeRange memoizes default and custom ranges with bounded cache eviction', () => {
+  const defaultA = shared.buildNonCjkUnicodeRange();
+  const defaultB = shared.buildNonCjkUnicodeRange(shared.CJK_UNICODE_RANGE);
+  assert.equal(defaultA, defaultB);
+
+  const customA = shared.buildNonCjkUnicodeRange('U+41-5A');
+  const customB = shared.buildNonCjkUnicodeRange('U+41-5A');
+  assert.equal(customA, customB);
+  assert.equal(customA, 'U+0-40, U+5B-10FFFF');
+
+  // Exceed the 16-entry custom cache and confirm eviction does not corrupt output.
+  for (let i = 0; i < 25; i += 1) {
+    const startHex = (0x100 + i * 0x10).toString(16).toUpperCase();
+    const endHex = (0x105 + i * 0x10).toString(16).toUpperCase();
+    const res = shared.buildNonCjkUnicodeRange(`U+${startHex}-${endHex}`);
+    assert.match(res, /^U\+0-/);
+  }
+  assert.equal(shared.buildNonCjkUnicodeRange('U+41-5A'), customA);
+  assert.equal(shared.buildNonCjkUnicodeRange(shared.CJK_UNICODE_RANGE), defaultA);
+});
+
+test('buildLocalFontCandidates returns cached frozen objects and bounds cache size', () => {
+  const first = shared.buildLocalFontCandidates('  Inter  ', 'Inter');
+  const second = shared.buildLocalFontCandidates('Inter', 'Inter');
+  const third = shared.buildLocalFontCandidates('Inter', '');
+  assert.equal(first, second);
+  assert.equal(first, third);
+  assert.equal(Object.isFrozen(first), true);
+  assert.equal(Object.isFrozen(first.regular), true);
+  assert.throws(() => {
+    first.regular.push('Mutated');
+  }, TypeError);
+
+  // Exceed the 128-entry cap and confirm subsequent builds stay accurate.
+  for (let i = 0; i < 150; i += 1) {
+    const entry = shared.buildLocalFontCandidates(`BoundedFont${i}`, `BoundedFontId${i}`);
+    assert.equal(entry.regular[0], `BoundedFont${i}`);
+    assert.equal(Object.isFrozen(entry), true);
+  }
+  const rebuilt = shared.buildLocalFontCandidates('Inter', 'Inter');
+  assert.equal(rebuilt.regular[0], 'Inter');
+});
+
+test('probeLocalFontSlots deduplicates concurrent in-flight probes per (cacheMap, key)', async () => {
+  const originalFontFace = globalThis.FontFace;
+  let loadCalls = 0;
+  let resolveLoads;
+  const loadGate = new Promise((resolve) => {
+    resolveLoads = resolve;
+  });
+
+  globalThis.FontFace = class DeferredFakeFontFace {
+    constructor(_family, _src, descriptors) {
+      this.descriptors = descriptors;
+    }
+    load() {
+      loadCalls += 1;
+      return loadGate.then(() => {
+        if (this.descriptors.style === 'italic' && this.descriptors.weight === 'normal') {
+          return this;
+        }
+        throw new Error('missing');
+      });
+    }
+  };
+
+  try {
+    const cacheA = new Map();
+    const cacheB = new Map();
+
+    // Two concurrent probes on the same (cacheA, key) share 1 set of 3 FontFace loads.
+    const p1 = shared.probeLocalFontSlots('Inter', 'Inter', cacheA, { useRuntimeCache: false });
+    const p2 = shared.probeLocalFontSlots('Inter', 'Inter', cacheA, { useRuntimeCache: false });
+    assert.equal(p1, p2);
+    assert.equal(loadCalls, 3);
+
+    // A concurrent probe on a different cacheMap runs independently.
+    const p3 = shared.probeLocalFontSlots('Inter', 'Inter', cacheB, { useRuntimeCache: false });
+    assert.notEqual(p1, p3);
+    assert.equal(loadCalls, 6);
+
+    resolveLoads();
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+    assert.deepEqual(r1, { bold: false, italic: true, boldItalic: false });
+    assert.deepEqual(r2, r1);
+    assert.deepEqual(r3, r1);
+
+    // Subsequent call hits cacheA immediately with zero additional loads.
+    const r4 = await shared.probeLocalFontSlots('Inter', 'Inter', cacheA, { useRuntimeCache: false });
+    assert.deepEqual(r4, r1);
+    assert.equal(loadCalls, 6);
+  } finally {
+    globalThis.FontFace = originalFontFace;
+  }
+});
+
+test('probeLocalFontSlots reads/populates runtime background cache and falls back cleanly on miss or error', async () => {
+  const originalFontFace = globalThis.FontFace;
+  let fontFaceCalls = 0;
+  globalThis.FontFace = class FakeFontFace {
+    constructor(_family, _src, descriptors) {
+      this.descriptors = descriptors;
+    }
+    load() {
+      fontFaceCalls += 1;
+      if (this.descriptors.weight === '700' && this.descriptors.style === 'normal') {
+        return Promise.resolve(this);
+      }
+      return Promise.reject(new Error('not found'));
+    }
+  };
+
+  try {
+    // 1. Runtime cache hit avoids FontFace.load() completely.
+    const hitMessages = [];
+    const hitRuntime = {
+      sendMessage(msg, cb) {
+        hitMessages.push(msg);
+        cb({ ok: true, slots: { bold: true, italic: true, boldItalic: false } });
+      },
+    };
+    const hitCache = new Map();
+    const hitRes = await shared.probeLocalFontSlots('PingFang TC', 'PingFang TC', hitCache, hitRuntime);
+    assert.deepEqual(hitRes, { bold: true, italic: true, boldItalic: false });
+    assert.equal(fontFaceCalls, 0);
+    assert.deepEqual(hitMessages, [
+      { action: shared.MSG_ACTIONS.GET_CACHED_FONT_SLOTS, key: 'PingFang TC\0PingFang TC' },
+    ]);
+    assert.deepEqual(hitCache.get('PingFang TC\0PingFang TC'), hitRes);
+
+    // 2. Runtime cache miss probes locally and stores back via SET_CACHED_FONT_SLOTS.
+    const missMessages = [];
+    const missRuntime = {
+      sendMessage(msg, cb) {
+        missMessages.push(msg);
+        if (msg.action === shared.MSG_ACTIONS.GET_CACHED_FONT_SLOTS) {
+          cb({ ok: true, slots: null });
+          return;
+        }
+        cb({ ok: true });
+      },
+    };
+    const missCache = new Map();
+    const missRes = await shared.probeLocalFontSlots('Arial', 'Arial', missCache, missRuntime);
+    assert.deepEqual(missRes, { bold: true, italic: false, boldItalic: false });
+    assert.equal(fontFaceCalls, 3);
+    assert.deepEqual(missMessages, [
+      { action: shared.MSG_ACTIONS.GET_CACHED_FONT_SLOTS, key: 'Arial\0Arial' },
+      {
+        action: shared.MSG_ACTIONS.SET_CACHED_FONT_SLOTS,
+        key: 'Arial\0Arial',
+        slots: { bold: true, italic: false, boldItalic: false },
+      },
+    ]);
+
+    // 3. Throwing runtime falls back safely to local FontFace probe.
+    const errRuntime = {
+      sendMessage() {
+        throw new Error('Extension context invalidated');
+      },
+    };
+    const errCache = new Map();
+    const errRes = await shared.probeLocalFontSlots('Georgia', 'Georgia', errCache, errRuntime);
+    assert.deepEqual(errRes, { bold: true, italic: false, boldItalic: false });
+    assert.equal(fontFaceCalls, 6);
+  } finally {
+    globalThis.FontFace = originalFontFace;
+  }
+});

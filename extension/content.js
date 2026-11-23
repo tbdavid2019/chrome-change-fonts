@@ -37,15 +37,23 @@
   ]);
   var ASCII_LIGATURE_REGEX = /^(?=.*[a-zA-Z0-9])[a-zA-Z0-9_-]{2,64}$/;
   var BRAND_LIGATURE_REGEX = /^google_logo(?:\s+play)?$/i;
-  var STYLE_FONT_OR_VAR_REGEX = /(?:font|--|\ball\s*:)/i;
-  var PROSE_BLOCK_TAGS = new Set(['P', 'BLOCKQUOTE', 'ARTICLE', 'PRE', 'LI', 'TD', 'TH', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+  var STYLE_FONT_OR_VAR_REGEX = /(?:font|--[^;:)"]*(?:font|family|icon|glyph|symbol)|\ball\s*:)/i;
+  var NON_ICON_PROSE_OR_CONTROL_TAGS = new Set([
+    'P', 'DIV', 'LI', 'TD', 'TH',
+    'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+    'BLOCKQUOTE', 'ARTICLE', 'SECTION', 'MAIN', 'ASIDE',
+    'HEADER', 'FOOTER', 'NAV', 'A', 'BUTTON', 'LABEL',
+    'SUMMARY', 'FIGCAPTION', 'DD', 'DT', 'OPTION', 'TEXTAREA',
+  ]);
   var INITIAL_HOLD_CAP_MS = 120;
   var PENDING_FONT_TIMEOUT_MS = 500;
   var OBSERVER_DEBOUNCE_MS = 60;
   var OBSERVER_MAX_WAIT_MS = 250;
-  var OBSERVER_BATCH_CAP = 500;
+  var MAX_ACCUMULATED_TARGETS = 2500;
   var MAX_ATTR_SUBTREE_ELEMENTS = 80;
   var MAX_UNICODE_RANGE_CACHE = 256;
+  var MAX_LIGATURE_CACHE = 512;
+  var SHADOW_PRUNE_THROTTLE_MS = 2000;
   var FONT_RESCAN_DEBOUNCE_MS = 120;
   var DEFERRED_CONTAINER_DEBOUNCE_MS = 350;
   var DEFERRED_CONTAINER_MAX_WAIT_MS = 1000;
@@ -121,10 +129,14 @@
   var trackedPipDocuments = new Set();
   var pipDocMeta = new WeakMap();
   var rootSheetMap = new WeakMap();
+  var docShadowSheetMap = new WeakMap();
+  var fallbackShadowCount = 0;
+  var lastShadowPruneAt = -Infinity;
   var pendingElements = new Set();
   var pendingDeadlineMap = new WeakMap();
   var pendingDeferredRoots = new Set();
   var knownStylesheetLinks = new WeakSet();
+  var trackedStylesheetLinks = new Set();
 
   var mainDocObserver = null;
   var initialReadyTimer = null;
@@ -141,6 +153,8 @@
   var pageShowBound = false;
   var activeListenersAttached = false;
   var domContentLoadedHandler = null;
+  var deferredBlankFrameSlotProbe = false;
+  var supportsCompoundClosest = null;
   function getNowMs() {
     if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
       return performance.now();
@@ -377,6 +391,9 @@
     var win = getOwningWindow(root);
     if (supportsAdoptedSheets(root, win)) {
       if (!existing || existing.isFallbackElement) {
+        if (existing && existing.countedFallbackShadow) {
+          fallbackShadowCount = Math.max(0, fallbackShadowCount - 1);
+        }
         var sheet = new win.CSSStyleSheet();
         existing = {
           sheet: sheet,
@@ -393,11 +410,16 @@
       var doc = root.ownerDocument || (root.createElement ? root : document);
       var styleEl = doc.createElement('style');
       styleEl.setAttribute('data-fc-style', '1');
+      var isShadowFallback = isShadowRootRoot(root);
+      if (isShadowFallback) {
+        fallbackShadowCount += 1;
+      }
       existing = {
         element: styleEl,
         rulesCssText: '',
         fontFaceElement: null,
         isFallbackElement: true,
+        countedFallbackShadow: isShadowFallback,
       };
       rootSheetMap.set(root, existing);
     }
@@ -415,9 +437,48 @@
   function attachSheetToRoot(root, rulesCss, fontFaceCss) {
     if (!root) return;
     var ffCss = fontFaceCss || '';
+    var win = getOwningWindow(root);
+
+    // Share one CSSStyleSheet across all ShadowRoots belonging to the same document.
+    if (isShadowRootRoot(root) && supportsAdoptedSheets(root, win)) {
+      var ownerDoc = root.ownerDocument || (typeof document !== 'undefined' ? document : null);
+      var sharedEntry = ownerDoc ? docShadowSheetMap.get(ownerDoc) : null;
+      if (!sharedEntry) {
+        sharedEntry = {
+          sheet: new win.CSSStyleSheet(),
+          rulesCssText: '',
+        };
+        if (ownerDoc) {
+          docShadowSheetMap.set(ownerDoc, sharedEntry);
+        }
+      }
+      if (sharedEntry.rulesCssText !== rulesCss) {
+        applySheetCssText(sharedEntry.sheet, rulesCss);
+        sharedEntry.rulesCssText = rulesCss;
+      }
+      if (root.adoptedStyleSheets.indexOf(sharedEntry.sheet) === -1) {
+        root.adoptedStyleSheets = root.adoptedStyleSheets.concat([sharedEntry.sheet]);
+      }
+      var existingSrEntry = rootSheetMap.get(root);
+      if (existingSrEntry && existingSrEntry.countedFallbackShadow) {
+        fallbackShadowCount = Math.max(0, fallbackShadowCount - 1);
+      }
+      if (!existingSrEntry || existingSrEntry.sheet !== sharedEntry.sheet || existingSrEntry.isFallbackElement) {
+        rootSheetMap.set(root, {
+          sheet: sharedEntry.sheet,
+          rulesCssText: '',
+          fontFaceSheet: null,
+          fontFaceCssText: '',
+          isFallbackElement: false,
+          isSharedShadow: true,
+          ownerDoc: ownerDoc,
+        });
+      }
+      return;
+    }
+
     var entry = getOrCreateRootSheet(root);
     if (!entry.isFallbackElement) {
-      var win = getOwningWindow(root);
       if (ffCss) {
         if (!entry.fontFaceSheet) {
           entry.fontFaceSheet = new win.CSSStyleSheet();
@@ -484,6 +545,9 @@
     if (!root) return;
     var entry = rootSheetMap.get(root);
     if (entry) {
+      if (entry.countedFallbackShadow) {
+        fallbackShadowCount = Math.max(0, fallbackShadowCount - 1);
+      }
       if (!entry.isFallbackElement) {
         if (Array.isArray(root.adoptedStyleSheets)) {
           var hasRules = root.adoptedStyleSheets.indexOf(entry.sheet) !== -1;
@@ -560,22 +624,14 @@
     stripFontChangerAttrsFromRoot(root);
   }
 
-  function getAllActiveRoots() {
-    var roots = [];
-    if (typeof document !== 'undefined' && document) {
-      roots.push(document);
+  function hasAttachedRulesSheet(root) {
+    if (!root) return false;
+    var entry = rootSheetMap.get(root);
+    if (!entry) return false;
+    if (!entry.isFallbackElement) {
+      return Array.isArray(root.adoptedStyleSheets) && root.adoptedStyleSheets.indexOf(entry.sheet) !== -1;
     }
-    trackedPipDocuments.forEach(function (pipDoc) {
-      if (pipDoc && pipDoc.documentElement) {
-        roots.push(pipDoc);
-      }
-    });
-    pruneTrackedShadowRoots();
-    trackedShadowRoots.forEach(function (ref) {
-      var sr = ref.deref();
-      if (sr) roots.push(sr);
-    });
-    return roots;
+    return Boolean(entry.element && entry.element.parentNode);
   }
 
   function syncActiveStyleSheets() {
@@ -592,24 +648,43 @@
         attachSheetToRoot(pipDoc, docCss, fontFaceCss);
       }
     });
-    pruneTrackedShadowRoots();
+    pruneTrackedShadowRootsThrottled();
     trackedShadowRoots.forEach(function (ref) {
       var sr = ref.deref();
-      if (sr) {
+      if (sr && sr.host && sr.host.isConnected) {
         attachSheetToRoot(sr, shadowCss, '');
       }
     });
   }
 
-  function setActiveSheetsDisabled(disabled) {
-    var roots = getAllActiveRoots();
-    for (var i = 0; i < roots.length; i++) {
-      var entry = rootSheetMap.get(roots[i]);
-      if (!entry) continue;
-      if (!entry.isFallbackElement) {
-        entry.sheet.disabled = Boolean(disabled);
-      } else {
-        entry.element.disabled = Boolean(disabled);
+  function setDocSheetsDisabled(targetDoc, disabled) {
+    var doc = targetDoc || (typeof document !== 'undefined' ? document : null);
+    if (!doc) return;
+    var flag = Boolean(disabled);
+    var docEntry = rootSheetMap.get(doc);
+    if (docEntry) {
+      if (!docEntry.isFallbackElement) {
+        if (Array.isArray(doc.adoptedStyleSheets) && doc.adoptedStyleSheets.indexOf(docEntry.sheet) !== -1) {
+          docEntry.sheet.disabled = flag;
+        }
+      } else if (docEntry.element && docEntry.element.parentNode) {
+        docEntry.element.disabled = flag;
+      }
+    }
+    if (trackedShadowRoots.size > 0) {
+      var shadowEntry = docShadowSheetMap.get(doc);
+      if (shadowEntry && shadowEntry.sheet) {
+        shadowEntry.sheet.disabled = flag;
+      }
+      if (fallbackShadowCount > 0) {
+        trackedShadowRoots.forEach(function (ref) {
+          var sr = ref.deref();
+          if (!sr || sr.ownerDocument !== doc) return;
+          var srEntry = rootSheetMap.get(sr);
+          if (srEntry && srEntry.isFallbackElement && srEntry.element && srEntry.element.parentNode) {
+            srEntry.element.disabled = flag;
+          }
+        });
       }
     }
   }
@@ -674,6 +749,23 @@
     }
     parsedUnicodeRangeCache.set(rangeStr, parsed);
     return parsed;
+  }
+
+  function faceOverlapsIconRelevantRange(face) {
+    if (!face || !face.unicodeRange) return true;
+    var ranges = getParsedUnicodeRange(face.unicodeRange);
+    if (!ranges || !ranges.length) return true;
+    for (var i = 0; i < ranges.length; i++) {
+      var start = ranges[i][0];
+      var end = ranges[i][1];
+      if ((start <= 0x007E && end >= 0x0021) ||
+          (start <= 0xF8FF && end >= 0xE000) ||
+          (start <= 0xFFFFD && end >= 0xF0000) ||
+          (start <= 0x10FFFD && end >= 0x100000)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function faceRangeMatchesText(face, text) {
@@ -864,7 +956,7 @@
   }
 
   function isSignal3Ligature(normText, rawFontFamily, targetDoc, fontIndex) {
-    if (!normText || !rawFontFamily) return false;
+    if (!normText || !rawFontFamily || /^\d+$/.test(normText)) return false;
     var families = SHARED.parseFontFamilyList(rawFontFamily);
     var primary = families.length ? families[0].toLowerCase() : '';
     if (!primary || DEFAULT_UI_FONTS.has(primary)) return false;
@@ -886,7 +978,10 @@
 
     var cacheKey = rawFontFamily + '\0' + normText;
     if (ligatureRatioCache.has(cacheKey)) {
-      return ligatureRatioCache.get(cacheKey);
+      var cachedVal = ligatureRatioCache.get(cacheKey);
+      ligatureRatioCache.delete(cacheKey);
+      ligatureRatioCache.set(cacheKey, cachedVal);
+      return cachedVal;
     }
 
     var ctx = getMeasureContext();
@@ -901,6 +996,9 @@
     var isLigature = zwnjWidth > 0 && rawWidth > 0 && rawWidth / zwnjWidth < 0.85;
 
     if (allLoaded) {
+      if (ligatureRatioCache.size >= MAX_LIGATURE_CACHE) {
+        ligatureRatioCache.delete(ligatureRatioCache.keys().next().value);
+      }
       ligatureRatioCache.set(cacheKey, isLigature);
     }
     return isLigature;
@@ -1189,15 +1287,71 @@
     return Boolean(inlineStyle && ICON_KEYWORD_REGEX.test(inlineStyle));
   }
 
-  function shouldCheckLongHostText(el, hostText) {
-    if (hostText.trim().length <= 64) return true;
-    if (SHARED.PUA_REGEX.test(hostText) || Boolean(isAsciiLigatureCandidateText(hostText))) {
-      return true;
+  function isInsideCodeOrPre(el) {
+    if (!el) return false;
+    if (typeof el.closest === 'function') {
+      try {
+        if (supportsCompoundClosest === null &&
+            typeof document !== 'undefined' &&
+            document &&
+            document.documentElement &&
+            typeof document.documentElement.closest === 'function') {
+          supportsCompoundClosest = Boolean(document.documentElement.closest('html, body'));
+        }
+        if (el.closest('code, pre, kbd, samp')) {
+          return true;
+        }
+        if (supportsCompoundClosest === true) {
+          return false;
+        }
+      } catch (_e) {
+        // Ignore stub closest failures.
+      }
     }
-    if (hasInlineOrClassIconHint(el)) return true;
-    var tag = el && el.tagName ? String(el.tagName).toUpperCase() : '';
-    if (!PROSE_BLOCK_TAGS.has(tag)) return true;
+    var cur = el;
+    while (cur && cur.nodeType === 1) {
+      var curTag = cur.tagName ? String(cur.tagName).toUpperCase() : '';
+      if (curTag === 'CODE' || curTag === 'PRE' || curTag === 'KBD' || curTag === 'SAMP') {
+        return true;
+      }
+      cur = cur.parentElement;
+    }
     return false;
+  }
+
+  function isSingleCharIconCandidate(str) {
+    var trimmed = String(str || '').trim();
+    if (!trimmed) return false;
+    var cp = trimmed.codePointAt(0);
+    var charLen = cp > 0xFFFF ? 2 : 1;
+    if (trimmed.length !== charLen) return false;
+    if (cp >= 0x0030 && cp <= 0x0039) return false;
+    return (cp >= 0x0021 && cp <= 0x007E) || (cp >= 0x2190 && cp <= 0x2BFF);
+  }
+
+  function hasZeroElementAttributes(el) {
+    if (!el || !el.attributes) return false;
+    if (typeof el.attributes.length === 'number') {
+      return el.attributes.length === 0;
+    }
+    if (typeof el.attributes.size === 'number') {
+      return el.attributes.size === 0;
+    }
+    return false;
+  }
+
+  function shouldCheckHostText(el, hostText) {
+    if (SHARED.PUA_REGEX.test(hostText)) return true;
+    if (hasInlineOrClassIconHint(el)) return true;
+    if (isInsideCodeOrPre(el)) return false;
+    if (Boolean(isAsciiLigatureCandidateText(hostText))) return true;
+    if (isSingleCharIconCandidate(hostText)) return true;
+    if (/[^\x00-\x7F]/.test(hostText)) return false;
+    var tag = el && el.tagName ? String(el.tagName).toUpperCase() : '';
+    if (NON_ICON_PROSE_OR_CONTROL_TAGS.has(tag)) return false;
+    var trimmed = hostText.trim();
+    if (trimmed.length > 4 && /[.,!?;:'"()]/.test(trimmed)) return false;
+    return true;
   }
 
   function classifyElementsGroupedByDoc(elements, allowPendingHold) {
@@ -1302,14 +1456,22 @@
       var hostVisibleContent = hasHostText || childElementCount > 0 ||
         (!isLeaf && hasNonWhitespaceText(el.textContent || ''));
 
+      var needsHostCheck = hasHostText && shouldCheckHostText(el, hostText);
+      var elTagUpper = el.tagName ? String(el.tagName).toUpperCase() : '';
+      var skipPlainProsePseudos = !hadFc && !needsHostCheck &&
+        (elTagUpper === 'P' || elTagUpper === 'CODE' || elTagUpper === 'PRE') &&
+        hasZeroElementAttributes(el);
+
+      if (skipPlainProsePseudos) {
+        continue;
+      }
+
       var beforeCs = getComputedStyleSafe(el, '::before');
       var afterCs = getComputedStyleSafe(el, '::after');
       var beforeContent = beforeCs ? parsePseudoContent(beforeCs.content) : '';
       var afterContent = afterCs ? parsePseudoContent(afterCs.content) : '';
       var hasBeforeContent = hasNonWhitespaceText(beforeContent);
       var hasAfterContent = hasNonWhitespaceText(afterContent);
-
-      var needsHostCheck = hasHostText && shouldCheckLongHostText(el, hostText);
 
       if (!hadFc && !hasBeforeContent && !hasAfterContent && !needsHostCheck) {
         continue;
@@ -1338,7 +1500,8 @@
     puaOnlyFontFamilies = fontIndex.puaOnly;
     cachedBodyPrimary = null;
 
-    setActiveSheetsDisabled(true);
+    var docHasSheet = hasAttachedRulesSheet(doc);
+    setDocSheetsDisabled(doc, true);
     var needsSheetUpdate = false;
     var computedResults = [];
     try {
@@ -1368,10 +1531,10 @@
         schedulePendingFallbackTimer();
       }
     } finally {
-      if (needsSheetUpdate) {
+      if (needsSheetUpdate && docHasSheet) {
         syncActiveStyleSheets();
       }
-      setActiveSheetsDisabled(false);
+      setDocSheetsDisabled(doc, false);
     }
   }
 
@@ -1425,21 +1588,41 @@
     watchStylesheetLinks(doc);
   }
 
+  function watchSingleStylesheetLink(link) {
+    if (!link || link.nodeType !== 1) return;
+    var tag = link.tagName ? String(link.tagName).toUpperCase() : '';
+    if (tag !== 'LINK') return;
+    var relVal = link.rel || (typeof link.getAttribute === 'function' ? (link.getAttribute('rel') || '') : '');
+    if (!/\bstylesheet\b/i.test(relVal)) return;
+    if (!knownStylesheetLinks.has(link) && typeof link.addEventListener === 'function') {
+      knownStylesheetLinks.add(link);
+      trackedStylesheetLinks.add(new WeakRef(link));
+      link.addEventListener('load', handleStylesheetOrFontLoaded);
+    }
+  }
+
   function watchStylesheetLinks(targetDoc) {
     var doc = targetDoc || (typeof document !== 'undefined' ? document : null);
     if (!doc || typeof doc.querySelectorAll !== 'function') return;
     try {
       var links = doc.querySelectorAll('link[rel~="stylesheet"]');
       for (var i = 0; i < links.length; i++) {
-        var link = links[i];
-        if (!knownStylesheetLinks.has(link) && typeof link.addEventListener === 'function') {
-          knownStylesheetLinks.add(link);
-          link.addEventListener('load', handleStylesheetOrFontLoaded);
-        }
+        watchSingleStylesheetLink(links[i]);
       }
     } catch (_e) {
       // Ignore querySelectorAll stub limitations.
     }
+  }
+
+  function unwatchAllStylesheetLinks() {
+    trackedStylesheetLinks.forEach(function (ref) {
+      var link = ref.deref();
+      if (link && typeof link.removeEventListener === 'function') {
+        link.removeEventListener('load', handleStylesheetOrFontLoaded);
+      }
+    });
+    trackedStylesheetLinks.clear();
+    knownStylesheetLinks = new WeakSet();
   }
 
   function collectBoundedSubtreeElements(rootEl, maxCount, newShadowRoots) {
@@ -1485,133 +1668,97 @@
     return '';
   }
 
-  function prefilterMutationCandidates(mutations) {
+  function processExtractedMutationBatch(batch) {
     var candidates = new Set();
     var touchedShadows = [];
     var deferredRoots = [];
-    var styleAttrTargets = new Map();
-    var classAttrTargets = new Set();
     var visitedAddedElements = new Set();
 
-    for (var i = 0; i < mutations.length; i++) {
-      var m = mutations[i];
-      if (!m) continue;
+    for (var i = 0; i < batch.charParents.length; i++) {
+      var cp = batch.charParents[i];
+      if (cp && cp.isConnected && !isSkippedTag(cp)) {
+        candidates.add(cp);
+      }
+    }
 
-      if (m.type === 'characterData') {
-        var parent = m.target && m.target.parentElement;
-        if (parent && !isSkippedTag(parent)) {
-          var newVal = m.target.nodeValue || '';
-          var hadFcAttr = parent.hasAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_FONT) ||
-            parent.hasAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_LIGATURE) ||
-            parent.hasAttribute(SHARED.ACTIVE_DOM_ATTRS.PENDING);
-          if (hadFcAttr || SHARED.PUA_REGEX.test(newVal) || isAsciiLigatureCandidateText(newVal)) {
-            candidates.add(parent);
-          }
-        }
+    for (var j = 0; j < batch.addedRoots.length; j++) {
+      var added = batch.addedRoots[j];
+      if (!added || !added.isConnected || isSkippedTag(added) || visitedAddedElements.has(added)) {
         continue;
       }
-
-      if (m.type === 'attributes') {
-        if (m.attributeName && m.attributeName.indexOf('data-fc-') === 0) {
-          continue;
-        }
-        var attrTarget = m.target;
-        if (attrTarget && attrTarget.nodeType === 1 && !isSkippedTag(attrTarget)) {
-          if (m.attributeName === 'style') {
-            var oldMatches = typeof m.oldValue === 'string' && STYLE_FONT_OR_VAR_REGEX.test(m.oldValue);
-            var prevFlag = styleAttrTargets.get(attrTarget) || false;
-            styleAttrTargets.set(attrTarget, prevFlag || oldMatches);
-          } else {
-            classAttrTargets.add(attrTarget);
+      if (typeof added.querySelectorAll === 'function' && added.children && added.children.length > 0) {
+        try {
+          var nestedLinks = added.querySelectorAll('link[rel~="stylesheet"]');
+          for (var nl = 0; nl < nestedLinks.length; nl++) {
+            watchSingleStylesheetLink(nestedLinks[nl]);
           }
+        } catch (_e) {
+          // Ignore stub querySelectorAll limitations.
         }
-        continue;
       }
-
-      if (m.type === 'childList' && m.addedNodes) {
-        for (var j = 0; j < m.addedNodes.length; j++) {
-          var added = m.addedNodes[j];
-          if (!added) continue;
-          if (added.nodeType === 3) {
-            var p = m.target && m.target.nodeType === 1 ? m.target : added.parentElement;
-            if (p && !isSkippedTag(p)) {
-              var txt = added.nodeValue || '';
-              if (p.hasAttribute(SHARED.ACTIVE_DOM_ATTRS.ICON_FONT) ||
-                  SHARED.PUA_REGEX.test(txt) ||
-                  isAsciiLigatureCandidateText(txt)) {
-                candidates.add(p);
-              }
-            }
-          } else if (added.nodeType === 1 && !isSkippedTag(added)) {
-            if (visitedAddedElements.has(added)) continue;
-            if (added.tagName && String(added.tagName).toUpperCase() === 'LINK') {
-              watchStylesheetLinks(added.ownerDocument);
-            }
-            var subElements = [];
-            collectElementsAndShadowRoots(added, subElements, touchedShadows);
-            for (var k = 0; k < subElements.length; k++) {
-              var el = subElements[k];
-              visitedAddedElements.add(el);
-              if (shouldInspectSubtreeElement(el)) {
-                candidates.add(el);
-              }
-            }
-          }
+      var subElements = [];
+      collectElementsAndShadowRoots(added, subElements, touchedShadows);
+      for (var k = 0; k < subElements.length; k++) {
+        var el = subElements[k];
+        visitedAddedElements.add(el);
+        if (shouldInspectSubtreeElement(el)) {
+          candidates.add(el);
         }
       }
     }
 
-    styleAttrTargets.forEach(function (oldMatchedFontOrVar, el) {
-      if (visitedAddedElements.has(el)) return;
-      var tag = el.tagName ? String(el.tagName).toUpperCase() : '';
-      var curStyle = getStyleAttrValue(el);
+    for (var s = 0; s < batch.styleTargets.length; s++) {
+      var pair = batch.styleTargets[s];
+      var styleEl = pair[0];
+      var oldMatchedFontOrVar = pair[1];
+      if (!styleEl || !styleEl.isConnected || isSkippedTag(styleEl) || visitedAddedElements.has(styleEl)) {
+        continue;
+      }
+      var curStyle = getStyleAttrValue(styleEl);
       var affectsFontOrVar = oldMatchedFontOrVar || STYLE_FONT_OR_VAR_REGEX.test(curStyle);
-
-      if (tag === 'HTML' || tag === 'BODY') {
-        if (hasAnyFcAttr(el)) candidates.add(el);
-        if (affectsFontOrVar) deferredRoots.push(el);
-        return;
-      }
-
       if (!affectsFontOrVar) {
-        var hasChildren = el.children && el.children.length > 0;
-        if (!hasChildren || hasAnyFcAttr(el) || hasNonWhitespaceText(getDirectTextContent(el))) {
-          candidates.add(el);
-        }
-        return;
+        continue;
       }
-
-      var boundedStyle = collectBoundedSubtreeElements(el, MAX_ATTR_SUBTREE_ELEMENTS, touchedShadows);
+      var styleTag = styleEl.tagName ? String(styleEl.tagName).toUpperCase() : '';
+      if (styleTag === 'HTML' || styleTag === 'BODY') {
+        if (hasAnyFcAttr(styleEl)) candidates.add(styleEl);
+        deferredRoots.push(styleEl);
+        continue;
+      }
+      var boundedStyle = collectBoundedSubtreeElements(styleEl, MAX_ATTR_SUBTREE_ELEMENTS, touchedShadows);
       if (!boundedStyle) {
-        deferredRoots.push(el);
-        return;
+        deferredRoots.push(styleEl);
+        continue;
       }
-      for (var s = 0; s < boundedStyle.length; s++) {
-        if (shouldInspectSubtreeElement(boundedStyle[s])) {
-          candidates.add(boundedStyle[s]);
+      for (var bs = 0; bs < boundedStyle.length; bs++) {
+        if (shouldInspectSubtreeElement(boundedStyle[bs])) {
+          candidates.add(boundedStyle[bs]);
         }
       }
-    });
+    }
 
-    classAttrTargets.forEach(function (el) {
-      if (visitedAddedElements.has(el)) return;
-      var tag = el.tagName ? String(el.tagName).toUpperCase() : '';
-      if (tag === 'HTML' || tag === 'BODY') {
-        if (hasAnyFcAttr(el)) candidates.add(el);
-        deferredRoots.push(el);
-        return;
+    for (var c = 0; c < batch.classTargets.length; c++) {
+      var classEl = batch.classTargets[c];
+      if (!classEl || !classEl.isConnected || isSkippedTag(classEl) || visitedAddedElements.has(classEl)) {
+        continue;
       }
-      var bounded = collectBoundedSubtreeElements(el, MAX_ATTR_SUBTREE_ELEMENTS, touchedShadows);
-      if (!bounded) {
-        deferredRoots.push(el);
-        return;
+      var classTag = classEl.tagName ? String(classEl.tagName).toUpperCase() : '';
+      if (classTag === 'HTML' || classTag === 'BODY') {
+        if (hasAnyFcAttr(classEl)) candidates.add(classEl);
+        deferredRoots.push(classEl);
+        continue;
       }
-      for (var i = 0; i < bounded.length; i++) {
-        if (shouldInspectSubtreeElement(bounded[i])) {
-          candidates.add(bounded[i]);
+      var boundedClass = collectBoundedSubtreeElements(classEl, MAX_ATTR_SUBTREE_ELEMENTS, touchedShadows);
+      if (!boundedClass) {
+        deferredRoots.push(classEl);
+        continue;
+      }
+      for (var bc = 0; bc < boundedClass.length; bc++) {
+        if (shouldInspectSubtreeElement(boundedClass[bc])) {
+          candidates.add(boundedClass[bc]);
         }
       }
-    });
+    }
 
     return {
       candidates: Array.from(candidates),
@@ -1625,9 +1772,21 @@
       (typeof MutationObserver === 'function' ? MutationObserver : null);
     if (!ObserverCtor || !root) return null;
 
-    var queued = [];
+    var addedRoots = new Set();
+    var charParents = new Set();
+    var styleTargets = new Map();
+    var classTargets = new Set();
+    var overflowFullRescan = false;
     var debounceTimer = null;
     var maxWaitTimer = null;
+
+    function clearPendingTargets() {
+      addedRoots.clear();
+      charParents.clear();
+      styleTargets.clear();
+      classTargets.clear();
+      overflowFullRescan = false;
+    }
 
     function flush() {
       if (debounceTimer) {
@@ -1639,27 +1798,105 @@
         maxWaitTimer = null;
       }
       if (!isAlive() || !state.active) {
-        queued = [];
+        clearPendingTargets();
         return;
       }
       var target = rootRef ? rootRef.deref() : root;
       if (!target) {
-        queued = [];
+        clearPendingTargets();
         return;
       }
-      if (!queued.length) return;
-      var batch = queued.splice(0, OBSERVER_BATCH_CAP);
-      var hasMore = queued.length > 0;
-      onBatch(target, batch);
-      if (hasMore && isAlive() && state.active) {
-        debounceTimer = setTimeout(flush, 0);
+      if (!overflowFullRescan && addedRoots.size === 0 && charParents.size === 0 &&
+          styleTargets.size === 0 && classTargets.size === 0) {
+        return;
       }
+      var batch = {
+        overflowFullRescan: overflowFullRescan,
+        addedRoots: Array.from(addedRoots),
+        charParents: Array.from(charParents),
+        styleTargets: Array.from(styleTargets.entries()),
+        classTargets: Array.from(classTargets),
+      };
+      clearPendingTargets();
+      onBatch(target, batch);
     }
 
     var observer = new ObserverCtor(function (mutations) {
       if (!isAlive() || !state.active || !mutations || !mutations.length) return;
-      for (var i = 0; i < mutations.length; i++) {
-        queued.push(mutations[i]);
+      if (!overflowFullRescan) {
+        for (var i = 0; i < mutations.length; i++) {
+          var m = mutations[i];
+          if (!m) continue;
+
+          if (m.type === 'characterData') {
+            var parent = m.target && m.target.parentElement;
+            if (parent && !isSkippedTag(parent)) {
+              var newVal = m.target.nodeValue || '';
+              if (hasAnyFcAttr(parent) || hasInlineOrClassIconHint(parent) ||
+                  SHARED.PUA_REGEX.test(newVal) || isAsciiLigatureCandidateText(newVal) ||
+                  isSingleCharIconCandidate(newVal)) {
+                charParents.add(parent);
+              }
+            }
+          } else if (m.type === 'attributes') {
+            if (m.attributeName && m.attributeName.indexOf('data-fc-') === 0) {
+              continue;
+            }
+            var attrTarget = m.target;
+            if (attrTarget && attrTarget.nodeType === 1 && !isSkippedTag(attrTarget)) {
+              if (m.attributeName === 'style') {
+                var oldMatches = typeof m.oldValue === 'string' && STYLE_FONT_OR_VAR_REGEX.test(m.oldValue);
+                if (oldMatches) {
+                  styleTargets.set(attrTarget, true);
+                } else if (!styleTargets.has(attrTarget) && STYLE_FONT_OR_VAR_REGEX.test(getStyleAttrValue(attrTarget))) {
+                  styleTargets.set(attrTarget, false);
+                }
+              } else {
+                classTargets.add(attrTarget);
+              }
+            }
+          } else if (m.type === 'childList') {
+            if (m.removedNodes && m.removedNodes.length > 0 &&
+                m.target && m.target.nodeType === 1 && !isSkippedTag(m.target) && hasAnyFcAttr(m.target)) {
+              charParents.add(m.target);
+            }
+            if (m.addedNodes) {
+              for (var j = 0; j < m.addedNodes.length; j++) {
+                var added = m.addedNodes[j];
+                if (!added) continue;
+                if (added.nodeType === 3) {
+                  var p = m.target && m.target.nodeType === 1 ? m.target : added.parentElement;
+                  if (p && !isSkippedTag(p)) {
+                    var txt = added.nodeValue || '';
+                    if (hasAnyFcAttr(p) || hasInlineOrClassIconHint(p) ||
+                        SHARED.PUA_REGEX.test(txt) || isAsciiLigatureCandidateText(txt) ||
+                        isSingleCharIconCandidate(txt)) {
+                      charParents.add(p);
+                    }
+                  }
+                } else if (added.nodeType === 1) {
+                  var addedTag = added.tagName ? String(added.tagName).toUpperCase() : '';
+                  if (addedTag === 'LINK') {
+                    watchSingleStylesheetLink(added);
+                  } else if (addedTag === 'HEAD') {
+                    watchStylesheetLinks(added.ownerDocument);
+                  } else if (!isSkippedTag(added)) {
+                    addedRoots.add(added);
+                  }
+                }
+              }
+            }
+          }
+
+          if (addedRoots.size + charParents.size + styleTargets.size + classTargets.size > MAX_ACCUMULATED_TARGETS) {
+            overflowFullRescan = true;
+            addedRoots.clear();
+            charParents.clear();
+            styleTargets.clear();
+            classTargets.clear();
+            break;
+          }
+        }
       }
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(flush, OBSERVER_DEBOUNCE_MS);
@@ -1681,6 +1918,10 @@
     } catch (_e) {
       return null;
     }
+    if (rootRef) {
+      root = null;
+      observeTarget = null;
+    }
 
     return {
       disconnect: function () {
@@ -1692,7 +1933,7 @@
           clearTimeout(maxWaitTimer);
           maxWaitTimer = null;
         }
-        queued = [];
+        clearPendingTargets();
         observer.disconnect();
       },
     };
@@ -1768,10 +2009,17 @@
     }
   }
 
-  function handleMutationBatch(targetRoot, mutations) {
+  function handleMutationBatch(targetRoot, batch) {
     if (!isAlive() || !state.active) return;
-    pruneTrackedShadowRoots();
-    var result = prefilterMutationCandidates(mutations);
+    if (deferredBlankFrameSlotProbe && targetRoot === document && !isEmptyAboutBlankSubframe()) {
+      triggerLocalSlotProbesIfNeeded();
+    }
+    pruneTrackedShadowRootsThrottled();
+    if (batch.overflowFullRescan) {
+      scanRootTree(targetRoot, true);
+      return;
+    }
+    var result = processExtractedMutationBatch(batch);
     for (var i = 0; i < result.touchedShadows.length; i++) {
       registerShadowRoot(result.touchedShadows[i]);
     }
@@ -1792,12 +2040,15 @@
     var obs = state.active ? createDebouncedMutationObserver(shadowRoot, ref, handleMutationBatch) : null;
     shadowRootMeta.set(shadowRoot, { ref: ref, observer: obs });
     if (state.active) {
-      attachSheetToRoot(shadowRoot, buildRulesCss(true), '');
       scanRootTree(shadowRoot, true);
+      attachSheetToRoot(shadowRoot, buildRulesCss(true), '');
     }
   }
 
   function pruneTrackedShadowRoots() {
+    lastShadowPruneAt = getNowMs();
+    var liveOwnerDocs = new Set();
+    var prunedOwnerDocs = [];
     trackedShadowRoots.forEach(function (ref) {
       var sr = ref.deref();
       var ownerDoc = sr ? sr.ownerDocument : null;
@@ -1811,10 +2062,27 @@
           }
           detachSheetFromRoot(sr);
           shadowRootMeta.delete(sr);
+          if (ownerDoc) {
+            prunedOwnerDocs.push(ownerDoc);
+          }
         }
         trackedShadowRoots.delete(ref);
+      } else if (ownerDoc) {
+        liveOwnerDocs.add(ownerDoc);
       }
     });
+    for (var i = 0; i < prunedOwnerDocs.length; i++) {
+      var doc = prunedOwnerDocs[i];
+      if (!liveOwnerDocs.has(doc)) {
+        docShadowSheetMap.delete(doc);
+      }
+    }
+  }
+
+  function pruneTrackedShadowRootsThrottled() {
+    if (trackedShadowRoots.size === 0) return;
+    if (getNowMs() - lastShadowPruneAt < SHADOW_PRUNE_THROTTLE_MS) return;
+    pruneTrackedShadowRoots();
   }
 
   function collectFontFaceCssFromRules(cssRules, outList) {
@@ -1909,6 +2177,10 @@
       if (meta.observer) {
         meta.observer.disconnect();
       }
+      if (meta.fontsBound && pipDoc.fonts && typeof pipDoc.fonts.removeEventListener === 'function') {
+        pipDoc.fonts.removeEventListener('loadingdone', handleStylesheetOrFontLoaded);
+        meta.fontsBound = false;
+      }
       if (meta.win && meta.onHide && typeof meta.win.removeEventListener === 'function') {
         meta.win.removeEventListener('pagehide', meta.onHide);
         meta.win.removeEventListener('unload', meta.onHide);
@@ -1921,6 +2193,7 @@
       pipDocMeta.delete(pipDoc);
     }
     cleanRootCompletely(pipDoc);
+    docShadowSheetMap.delete(pipDoc);
     trackedPipDocuments.delete(pipDoc);
     pruneTrackedShadowRoots();
   }
@@ -1928,10 +2201,24 @@
   function activatePipDocument(pipDoc, pipWin) {
     if (!pipDoc || !isEffectivelyEnabled()) return;
     copyFontResourcesToPip(document, pipDoc);
-    attachSheetToRoot(pipDoc, buildRulesCss(false), buildFontFaceCss());
-    scanRootTree(pipDoc, true);
+    if (!hasAttachedRulesSheet(pipDoc)) {
+      var prevFontCount = indexedFontsList.length;
+      scanRootTree(pipDoc, true);
+      if (indexedFontsList.length > prevFontCount) {
+        syncActiveStyleSheets();
+      } else {
+        attachSheetToRoot(pipDoc, buildRulesCss(false), buildFontFaceCss());
+      }
+    } else {
+      attachSheetToRoot(pipDoc, buildRulesCss(false), buildFontFaceCss());
+      scanRootTree(pipDoc, true);
+    }
     var meta = pipDocMeta.get(pipDoc) || {};
     meta.win = pipWin || meta.win || pipDoc.defaultView;
+    if (!meta.fontsBound && pipDoc.fonts && typeof pipDoc.fonts.addEventListener === 'function') {
+      pipDoc.fonts.addEventListener('loadingdone', handleStylesheetOrFontLoaded);
+      meta.fontsBound = true;
+    }
     if (!meta.observer) {
       meta.observer = createDebouncedMutationObserver(pipDoc, null, handleMutationBatch);
     }
@@ -1999,7 +2286,8 @@
     if (isLoadingDone && loadedFaces) {
       var cjkName = SHARED.CJK_FONT_FAMILY.toLowerCase();
       var latinName = SHARED.LATIN_FONT_FAMILY.toLowerCase();
-      var hasNewFace = false;
+      var hasNewPageFace = false;
+      var hasNewRelevantFace = false;
       for (var i = 0; i < loadedFaces.length; i++) {
         var face = loadedFaces[i];
         if (!face || !face.family) continue;
@@ -2009,10 +2297,21 @@
         }
         if (!seenLoadedFaces.has(face)) {
           seenLoadedFaces.add(face);
-          hasNewFace = true;
+          hasNewPageFace = true;
+          if (faceOverlapsIconRelevantRange(face)) {
+            hasNewRelevantFace = true;
+          }
         }
       }
-      if (!hasNewFace) {
+      if (!hasNewPageFace) {
+        return;
+      }
+      if (!hasNewRelevantFace) {
+        if (pendingElements.size > 0) {
+          var nonRelevantPendingBatch = Array.from(pendingElements);
+          pendingElements.clear();
+          classifyElementsGroupedByDoc(nonRelevantPendingBatch, true);
+        }
         return;
       }
       ligatureRatioCache.clear();
@@ -2035,10 +2334,7 @@
       pendingElements.clear();
       classifyElementsGroupedByDoc(nonFaceBatch, true);
     }
-    scanRootTree(document, true);
-    trackedPipDocuments.forEach(function (pipDoc) {
-      scanRootTree(pipDoc, true);
-    });
+    scheduleDebouncedFullRescan();
   }
 
   function attachActiveEnvironmentListeners() {
@@ -2067,21 +2363,44 @@
     }
   }
 
+  function isEmptyAboutBlankSubframe() {
+    if (IS_TOP_FRAME) return false;
+    var href = '';
+    try {
+      href = typeof window !== 'undefined' && window.location && typeof window.location.href === 'string'
+        ? window.location.href
+        : '';
+    } catch (_e) {
+      return false;
+    }
+    if (href !== 'about:blank') return false;
+    if (typeof document === 'undefined' || !document) return false;
+    if (!document.body) return document.readyState === 'loading';
+    return !hasNonWhitespaceText(document.body.textContent || '') &&
+      (!document.body.children || document.body.children.length === 0);
+  }
+
   function triggerLocalSlotProbesIfNeeded() {
     if (!isEffectivelyEnabled()) {
       return;
     }
+    if (isEmptyAboutBlankSubframe()) {
+      deferredBlankFrameSlotProbe = true;
+      return;
+    }
+    deferredBlankFrameSlotProbe = false;
     var effective = getEffectiveFontSettings();
     if (effective.fontMode !== SHARED.FONT_MODE_ADVANCED) {
       return;
     }
     var cfg = effective.advancedFontConfig;
     var tasks = [];
+    var probeOpts = { useRuntimeCache: !IS_INCOGNITO };
     if (cfg.cjkFont || cfg.cjkFontId) {
-      tasks.push(SHARED.probeLocalFontSlots(cfg.cjkFont, cfg.cjkFontId, localFontSlotsCache));
+      tasks.push(SHARED.probeLocalFontSlots(cfg.cjkFont, cfg.cjkFontId, localFontSlotsCache, probeOpts));
     }
     if (cfg.latinFont || cfg.latinFontId) {
-      tasks.push(SHARED.probeLocalFontSlots(cfg.latinFont, cfg.latinFontId, localFontSlotsCache));
+      tasks.push(SHARED.probeLocalFontSlots(cfg.latinFont, cfg.latinFontId, localFontSlotsCache, probeOpts));
     }
     if (!tasks.length) return;
     var seq = ++probeSeq;
@@ -2099,8 +2418,13 @@
     if (!isAlive() || !state.active) return;
     initialPassPending = false;
     state.appliedSignature = computeStateSignature();
-    syncActiveStyleSheets();
-    scanRootTree(document, true);
+    if (!hasAttachedRulesSheet(document)) {
+      scanRootTree(document, true);
+      syncActiveStyleSheets();
+    } else {
+      syncActiveStyleSheets();
+      scanRootTree(document, true);
+    }
     if (!mainDocObserver && typeof document !== 'undefined') {
       mainDocObserver = createDebouncedMutationObserver(document, null, handleMutationBatch);
     }
@@ -2113,6 +2437,7 @@
   function deactivate() {
     state.active = false;
     state.appliedSignature = 'dormant';
+    deferredBlankFrameSlotProbe = false;
 
     if (initialReadyTimer) {
       clearTimeout(initialReadyTimer);
@@ -2138,6 +2463,7 @@
     parsedUnicodeRangeCache.clear();
 
     detachActiveEnvironmentListeners();
+    unwatchAllStylesheetLinks();
 
     if (mainDocObserver) {
       mainDocObserver.disconnect();
@@ -2153,13 +2479,21 @@
         meta.observer = null;
       }
       cleanRootCompletely(sr);
+      shadowRootMeta.delete(sr);
     });
+    trackedShadowRoots.clear();
 
     trackedPipDocuments.forEach(function (pipDoc) {
       var meta = pipDocMeta.get(pipDoc);
-      if (meta && meta.observer) {
-        meta.observer.disconnect();
-        meta.observer = null;
+      if (meta) {
+        if (meta.observer) {
+          meta.observer.disconnect();
+          meta.observer = null;
+        }
+        if (meta.fontsBound && pipDoc.fonts && typeof pipDoc.fonts.removeEventListener === 'function') {
+          pipDoc.fonts.removeEventListener('loadingdone', handleStylesheetOrFontLoaded);
+          meta.fontsBound = false;
+        }
       }
       cleanRootCompletely(pipDoc);
     });
@@ -2167,6 +2501,9 @@
     if (typeof document !== 'undefined' && document) {
       cleanRootCompletely(document);
     }
+
+    docShadowSheetMap = new WeakMap();
+    fallbackShadowCount = 0;
 
     fontFamilyIndexMap.clear();
     indexedFontsList.length = 0;
@@ -2534,6 +2871,7 @@
     });
     trackedPipDocuments.clear();
     trackedShadowRoots.clear();
+    localFontSlotsCache.clear();
 
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged &&
         typeof chrome.storage.onChanged.removeListener === 'function') {
@@ -2571,6 +2909,7 @@
       return classifyElementsBatch([el], targetDoc || document, allowPending !== false);
     },
     getState: function () {
+      pruneTrackedShadowRoots();
       var effective = getEffectiveFontSettings();
       return {
         disposed: state.disposed,

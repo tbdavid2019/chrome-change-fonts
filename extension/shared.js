@@ -50,6 +50,8 @@
     SYNC_TAB_BADGE: 'syncTabBadge',
     GET_TAB_INCOGNITO_STATE: 'getTabIncognitoState',
     SYNC_TAB_INCOGNITO_STATE: 'syncTabIncognitoState',
+    GET_CACHED_FONT_SLOTS: 'getCachedFontSlots',
+    SET_CACHED_FONT_SLOTS: 'setCachedFontSlots',
   });
 
   // Only match the three Unicode Private Use Area blocks.
@@ -177,8 +179,11 @@
     return merged;
   }
 
-  function buildNonCjkUnicodeRange(cjkRange) {
-    var source = typeof cjkRange === 'string' ? cjkRange : CJK_UNICODE_RANGE;
+  var MAX_NON_CJK_RANGE_CACHE = 16;
+  var defaultNonCjkUnicodeRange = null;
+  var customNonCjkRangeCache = new Map();
+
+  function computeNonCjkUnicodeRange(source) {
     var merged = mergeUnicodeIntervals(parseUnicodeRangeString(source));
     var complement = [];
     var next = 0;
@@ -196,6 +201,26 @@
       complement.push('U+' + next.toString(16).toUpperCase() + '-10FFFF');
     }
     return complement.join(', ');
+  }
+
+  function buildNonCjkUnicodeRange(cjkRange) {
+    var source = typeof cjkRange === 'string' ? cjkRange : CJK_UNICODE_RANGE;
+    if (source === CJK_UNICODE_RANGE) {
+      if (defaultNonCjkUnicodeRange === null) {
+        defaultNonCjkUnicodeRange = computeNonCjkUnicodeRange(CJK_UNICODE_RANGE);
+      }
+      return defaultNonCjkUnicodeRange;
+    }
+    if (customNonCjkRangeCache.has(source)) {
+      return customNonCjkRangeCache.get(source);
+    }
+    var result = computeNonCjkUnicodeRange(source);
+    if (customNonCjkRangeCache.size >= MAX_NON_CJK_RANGE_CACHE) {
+      var oldestKey = customNonCjkRangeCache.keys().next().value;
+      customNonCjkRangeCache.delete(oldestKey);
+    }
+    customNonCjkRangeCache.set(source, result);
+    return result;
   }
 
   function isPurePuaUnicodeRange(unicodeRange) {
@@ -307,16 +332,48 @@
     };
   }
 
-  function buildLocalFontCandidates(displayName, fontId) {
-    var baseNames = [];
-    [displayName, fontId].forEach(function (name) {
-      if (typeof name === 'string') {
-        var trimmed = name.trim();
-        if (trimmed && baseNames.indexOf(trimmed) === -1) {
-          baseNames.push(trimmed);
-        }
+  var MAX_LOCAL_FONT_CANDIDATES_CACHE = 128;
+  var MAX_CALLER_SLOT_CACHE = 128;
+  var localFontCandidatesCache = new Map();
+  var formattedLocalSrcCache = new WeakMap();
+  var inFlightProbesByCache = new WeakMap();
+  var defaultInFlightProbes = new Map();
+
+  function normalizeFontPairKey(displayName, fontId) {
+    var d = typeof displayName === 'string' ? displayName.trim() : '';
+    var f = typeof fontId === 'string' ? fontId.trim() : '';
+    return d + '\0' + f;
+  }
+
+  function setBoundedSlotCache(cacheMap, key, value) {
+    if (!cacheMap || typeof cacheMap.set !== 'function') return;
+    if (typeof cacheMap.has === 'function' && typeof cacheMap.delete === 'function') {
+      if (cacheMap.has(key)) {
+        cacheMap.delete(key);
+      } else if (typeof cacheMap.size === 'number' &&
+                 cacheMap.size >= MAX_CALLER_SLOT_CACHE &&
+                 typeof cacheMap.keys === 'function') {
+        var oldest = cacheMap.keys().next().value;
+        if (oldest !== undefined) cacheMap.delete(oldest);
       }
-    });
+    }
+    cacheMap.set(key, value);
+  }
+
+  function buildLocalFontCandidates(displayName, fontId) {
+    var d = typeof displayName === 'string' ? displayName.trim() : '';
+    var f = typeof fontId === 'string' ? fontId.trim() : '';
+    var first = d || f;
+    var second = d && f && f !== d ? f : '';
+    var cacheKey = first + '\0' + second;
+
+    if (localFontCandidatesCache.has(cacheKey)) {
+      return localFontCandidatesCache.get(cacheKey);
+    }
+
+    var baseNames = [];
+    if (first) baseNames.push(first);
+    if (second) baseNames.push(second);
 
     var regular = [];
     var bold = [];
@@ -390,15 +447,33 @@
       }
     });
 
-    return {
-      regular: regular,
-      bold: bold,
-      italic: italic,
-      boldItalic: boldItalic,
-    };
+    var result = Object.freeze({
+      regular: Object.freeze(regular),
+      bold: Object.freeze(bold),
+      italic: Object.freeze(italic),
+      boldItalic: Object.freeze(boldItalic),
+    });
+
+    if (localFontCandidatesCache.size >= MAX_LOCAL_FONT_CANDIDATES_CACHE) {
+      var oldestKey = localFontCandidatesCache.keys().next().value;
+      localFontCandidatesCache.delete(oldestKey);
+    }
+    localFontCandidatesCache.set(cacheKey, result);
+    return result;
   }
 
   function formatLocalSrcList(candidates) {
+    if (candidates && typeof candidates === 'object' && Object.isFrozen(candidates)) {
+      var cached = formattedLocalSrcCache.get(candidates);
+      if (cached !== undefined) return cached;
+      var formatted = candidates
+        .map(function (name) {
+          return 'local(' + JSON.stringify(name) + ')';
+        })
+        .join(', ');
+      formattedLocalSrcCache.set(candidates, formatted);
+      return formatted;
+    }
     return candidates
       .map(function (name) {
         return 'local(' + JSON.stringify(name) + ')';
@@ -424,33 +499,197 @@
     }
   }
 
-  function probeLocalFontSlots(displayName, fontId, cacheMap) {
-    var key = String(displayName || '') + '\0' + String(fontId || '');
-    if (cacheMap && cacheMap.has(key)) {
-      return Promise.resolve(cacheMap.get(key));
+  function getInFlightProbesMap(cacheMap) {
+    if (cacheMap && typeof cacheMap === 'object') {
+      var map = inFlightProbesByCache.get(cacheMap);
+      if (!map) {
+        map = new Map();
+        inFlightProbesByCache.set(cacheMap, map);
+      }
+      return map;
     }
-    if (typeof FontFace !== 'function' || (!displayName && !fontId)) {
+    return defaultInFlightProbes;
+  }
+
+  function normalizeSlotResult(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (typeof raw.bold !== 'boolean' && typeof raw.italic !== 'boolean' && typeof raw.boldItalic !== 'boolean') {
+      return null;
+    }
+    return {
+      bold: Boolean(raw.bold),
+      italic: Boolean(raw.italic),
+      boldItalic: Boolean(raw.boldItalic),
+    };
+  }
+
+  function resolveProbeRuntimeApi(optionsOrRuntime) {
+    if (optionsOrRuntime === false) {
+      return null;
+    }
+    if (optionsOrRuntime && typeof optionsOrRuntime === 'object') {
+      if (optionsOrRuntime.useRuntimeCache === false) {
+        return null;
+      }
+      if (optionsOrRuntime.runtime && typeof optionsOrRuntime.runtime.sendMessage === 'function') {
+        return optionsOrRuntime.runtime;
+      }
+      if (typeof optionsOrRuntime.sendMessage === 'function') {
+        return optionsOrRuntime;
+      }
+      if (optionsOrRuntime.useRuntimeCache === true) {
+        return typeof chrome !== 'undefined' && chrome && chrome.runtime &&
+          chrome.runtime.id && typeof chrome.runtime.sendMessage === 'function'
+          ? chrome.runtime
+          : null;
+      }
+    }
+    if (typeof chrome !== 'undefined' && chrome && chrome.runtime &&
+        chrome.runtime.id && typeof chrome.runtime.sendMessage === 'function') {
+      return chrome.runtime;
+    }
+    return null;
+  }
+
+  function queryRuntimeSlotCache(runtimeApi, key) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      var timer = typeof setTimeout === 'function'
+        ? setTimeout(function () {
+            finish(null);
+          }, 150)
+        : null;
+      function finish(slots) {
+        if (settled) return;
+        settled = true;
+        if (timer !== null && typeof clearTimeout === 'function') {
+          clearTimeout(timer);
+        }
+        resolve(slots);
+      }
+      try {
+        var maybePromise = runtimeApi.sendMessage(
+          { action: MSG_ACTIONS.GET_CACHED_FONT_SLOTS, key: key },
+          function (resp) {
+            try {
+              void runtimeApi.lastError;
+            } catch (_e) {}
+            finish(normalizeSlotResult(resp && resp.slots));
+          }
+        );
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise.then(
+            function (resp) {
+              finish(normalizeSlotResult(resp && resp.slots));
+            },
+            function () {
+              finish(null);
+            }
+          );
+        }
+      } catch (_e) {
+        finish(null);
+      }
+    });
+  }
+
+  function storeRuntimeSlotCache(runtimeApi, key, slots) {
+    if (!runtimeApi || typeof runtimeApi.sendMessage !== 'function') return;
+    try {
+      var maybePromise = runtimeApi.sendMessage(
+        {
+          action: MSG_ACTIONS.SET_CACHED_FONT_SLOTS,
+          key: key,
+          slots: slots,
+        },
+        function () {
+          try {
+            void runtimeApi.lastError;
+          } catch (_e) {}
+        }
+      );
+      if (maybePromise && typeof maybePromise.catch === 'function') {
+        maybePromise.catch(function () {});
+      }
+    } catch (_e) {
+      // Ignore messaging failures when background context is unavailable.
+    }
+  }
+
+  function probeLocalFontSlots(displayName, fontId, cacheMap, optionsOrRuntime) {
+    var rawKey = String(displayName || '') + '\0' + String(fontId || '');
+    var normKey = normalizeFontPairKey(displayName, fontId);
+    if (cacheMap && (cacheMap.has(rawKey) || cacheMap.has(normKey))) {
+      return Promise.resolve(cacheMap.get(rawKey) || cacheMap.get(normKey));
+    }
+    if (typeof FontFace !== 'function' || (!displayName && !fontId) || normKey === '\0') {
       var empty = { bold: false, italic: false, boldItalic: false };
-      if (cacheMap && (displayName || fontId)) cacheMap.set(key, empty);
+      if (cacheMap && (displayName || fontId)) {
+        setBoundedSlotCache(cacheMap, rawKey, empty);
+      }
       return Promise.resolve(empty);
     }
 
-    var candidates = buildLocalFontCandidates(displayName, fontId);
-    return Promise.all([
-      probeSlotFontFace(candidates.bold, { weight: '700', style: 'normal' }),
-      probeSlotFontFace(candidates.italic, { weight: 'normal', style: 'italic' }),
-      probeSlotFontFace(candidates.boldItalic, { weight: '700', style: 'italic' }),
-    ]).then(function (results) {
-      var slots = {
-        bold: Boolean(results[0]),
-        italic: Boolean(results[1]),
-        boldItalic: Boolean(results[2]),
-      };
-      if (cacheMap) {
-        cacheMap.set(key, slots);
+    var inFlightMap = getInFlightProbesMap(cacheMap);
+    if (inFlightMap.has(normKey)) {
+      return inFlightMap.get(normKey);
+    }
+
+    var runtimeApi = resolveProbeRuntimeApi(optionsOrRuntime);
+
+    function saveSlotToCallerCache(slots) {
+      if (!cacheMap) return;
+      setBoundedSlotCache(cacheMap, rawKey, slots);
+      if (normKey !== rawKey) {
+        setBoundedSlotCache(cacheMap, normKey, slots);
       }
-      return slots;
-    });
+    }
+
+    function runLocalProbe() {
+      if (cacheMap && (cacheMap.has(rawKey) || cacheMap.has(normKey))) {
+        return Promise.resolve(cacheMap.get(rawKey) || cacheMap.get(normKey));
+      }
+      var candidates = buildLocalFontCandidates(displayName, fontId);
+      return Promise.all([
+        probeSlotFontFace(candidates.bold, { weight: '700', style: 'normal' }),
+        probeSlotFontFace(candidates.italic, { weight: 'normal', style: 'italic' }),
+        probeSlotFontFace(candidates.boldItalic, { weight: '700', style: 'italic' }),
+      ]).then(function (results) {
+        var slots = {
+          bold: Boolean(results[0]),
+          italic: Boolean(results[1]),
+          boldItalic: Boolean(results[2]),
+        };
+        saveSlotToCallerCache(slots);
+        if (runtimeApi) {
+          storeRuntimeSlotCache(runtimeApi, normKey, slots);
+        }
+        return slots;
+      });
+    }
+
+    var probePromise = (runtimeApi
+      ? queryRuntimeSlotCache(runtimeApi, normKey).then(function (cachedSlots) {
+          if (cachedSlots) {
+            saveSlotToCallerCache(cachedSlots);
+            return cachedSlots;
+          }
+          return runLocalProbe();
+        })
+      : runLocalProbe()
+    ).then(
+      function (slots) {
+        inFlightMap.delete(normKey);
+        return slots;
+      },
+      function (err) {
+        inFlightMap.delete(normKey);
+        throw err;
+      }
+    );
+
+    inFlightMap.set(normKey, probePromise);
+    return probePromise;
   }
 
   function buildRestrictedFontFaceSetCss(familyName, displayName, fontId, unicodeRange, resolvedSlots) {

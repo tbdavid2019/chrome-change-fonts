@@ -558,6 +558,10 @@ test('Popup exposes curated Cloud Google Fonts, injects preview stylesheet on de
   assert.equal(fontSelect.value, 'Fira Code');
   assert.equal(fontSelect.selectedOptions[0].dataset.fontId, 'gf:fira-code');
   assert.equal(fontSelect.selectedOptions[0].dataset.unavailable, undefined);
+  assert.equal(fontSelect.children[0].tagName, 'OPTGROUP');
+  assert.match(fontSelect.children[0].label, /雲端字體/);
+  assert.equal(fontSelect.children[1].tagName, 'OPTGROUP');
+  assert.match(fontSelect.children[1].label, /本機字體/);
   assert.ok(latinSelect.options.some((o) => o.dataset.fontId === 'gf:geist-mono'));
   assert.equal(cjkSelect.options.some((o) => o.dataset.cloudFont === '1'), false);
 

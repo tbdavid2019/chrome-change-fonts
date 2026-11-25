@@ -959,7 +959,6 @@
       sysOptionNodes.push(opt);
     }
     if (includeCloudFonts) {
-      appendOptionGroup(o.systemGroupLabel || 'System Fonts', sysOptionNodes);
       var cloudOptionNodes = [];
       for (var c = 0; c < CLOUD_GOOGLE_FONTS.length; c++) {
         var cf = CLOUD_GOOGLE_FONTS[c];
@@ -971,6 +970,7 @@
         cloudOptionNodes.push(cOpt);
       }
       appendOptionGroup(o.cloudGroupLabel || 'Cloud Fonts (Google Fonts)', cloudOptionNodes);
+      appendOptionGroup(o.systemGroupLabel || 'System Fonts', sysOptionNodes);
     } else {
       for (var s = 0; s < sysOptionNodes.length; s++) {
         selectEl.add(sysOptionNodes[s]);

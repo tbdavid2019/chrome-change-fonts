@@ -8,6 +8,7 @@
   var STORAGE_KEYS = Object.freeze({
     SELECTED_FONT: 'selectedFont',
     SELECTED_FONT_ID: 'selectedFontId',
+    CLOUD_FONT_WEIGHT: 'cloudFontWeight',
     IS_ENABLED: 'isEnabled',
     FONT_MODE: 'fontMode',
     ADVANCED_FONT_CONFIG: 'advancedFontConfig',
@@ -16,56 +17,70 @@
 
   var CLOUD_GOOGLE_FONT_PREFIX = 'gf:';
   var CLOUD_GOOGLE_FONT_ATTR = 'data-fc-cdn-font';
+  var CLOUD_FONT_WEIGHT_AUTO = 'auto';
+  var CLOUD_FONT_WEIGHT_VALUES = Object.freeze(['300', '400', '500', '600', '700']);
+  var FULL_CLOUD_WEIGHTS = Object.freeze(['300', '400', '500', '600', '700']);
+  var BASIC_CLOUD_WEIGHTS = Object.freeze(['400', '700']);
 
   var CLOUD_GOOGLE_FONTS = Object.freeze([
     Object.freeze({
       id: 'gf:jetbrains-mono',
       family: 'JetBrains Mono',
-      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap',
+      weights: FULL_CLOUD_WEIGHTS,
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap',
     }),
     Object.freeze({
       id: 'gf:fira-code',
       family: 'Fira Code',
-      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&display=swap',
+      weights: FULL_CLOUD_WEIGHTS,
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap',
     }),
     Object.freeze({
       id: 'gf:google-sans-code',
       family: 'Google Sans Code',
-      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&display=swap',
+      weights: FULL_CLOUD_WEIGHTS,
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@300;400;500;600;700&display=swap',
     }),
     Object.freeze({
       id: 'gf:geist-mono',
       family: 'Geist Mono',
-      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&display=swap',
+      weights: FULL_CLOUD_WEIGHTS,
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600;700&display=swap',
     }),
     Object.freeze({
       id: 'gf:source-code-pro',
       family: 'Source Code Pro',
-      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600;700&display=swap',
+      weights: FULL_CLOUD_WEIGHTS,
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@300;400;500;600;700&display=swap',
     }),
     Object.freeze({
       id: 'gf:intel-one-mono',
       family: 'Intel One Mono',
-      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Intel+One+Mono:wght@400;500;600;700&display=swap',
+      weights: FULL_CLOUD_WEIGHTS,
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Intel+One+Mono:wght@300;400;500;600;700&display=swap',
     }),
     Object.freeze({
       id: 'gf:lilex',
       family: 'Lilex',
-      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Lilex:wght@400;500;600;700&display=swap',
+      weights: FULL_CLOUD_WEIGHTS,
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Lilex:wght@300;400;500;600;700&display=swap',
     }),
     Object.freeze({
       id: 'gf:atkinson-hyperlegible-mono',
       family: 'Atkinson Hyperlegible Mono',
-      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;500;600;700&display=swap',
+      weights: FULL_CLOUD_WEIGHTS,
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@300;400;500;600;700&display=swap',
     }),
     Object.freeze({
       id: 'gf:atkinson-hyperlegible',
       family: 'Atkinson Hyperlegible',
+      weights: BASIC_CLOUD_WEIGHTS,
       googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap',
     }),
     Object.freeze({
       id: 'gf:anonymous-pro',
       family: 'Anonymous Pro',
+      weights: BASIC_CLOUD_WEIGHTS,
       googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&display=swap',
     }),
   ]);
@@ -180,6 +195,48 @@
     return mode === FONT_MODE_ADVANCED ? FONT_MODE_ADVANCED : FONT_MODE_BASIC;
   }
 
+  function normalizeCloudFontWeight(weight) {
+    if (typeof weight === 'number' && Number.isFinite(weight)) {
+      weight = String(weight);
+    }
+    if (typeof weight !== 'string') return CLOUD_FONT_WEIGHT_AUTO;
+    var trimmed = weight.trim();
+    return CLOUD_FONT_WEIGHT_VALUES.indexOf(trimmed) !== -1 ? trimmed : CLOUD_FONT_WEIGHT_AUTO;
+  }
+
+  function resolveEffectiveCloudFontWeight(cloudFont, weight) {
+    if (!cloudFont) return CLOUD_FONT_WEIGHT_AUTO;
+    var normalized = normalizeCloudFontWeight(weight);
+    if (normalized === CLOUD_FONT_WEIGHT_AUTO) return CLOUD_FONT_WEIGHT_AUTO;
+    var supported = Array.isArray(cloudFont.weights) && cloudFont.weights.length
+      ? cloudFont.weights
+      : BASIC_CLOUD_WEIGHTS;
+    if (supported.indexOf(normalized) !== -1) {
+      return normalized;
+    }
+    var target = Number(normalized);
+    var best = supported[0];
+    var bestDiff = Math.abs(Number(best) - target);
+    for (var i = 1; i < supported.length; i++) {
+      var candidate = supported[i];
+      var diff = Math.abs(Number(candidate) - target);
+      if (diff < bestDiff) {
+        best = candidate;
+        bestDiff = diff;
+      }
+    }
+    return best;
+  }
+
+  function resolveActiveCloudFontFromConfig(config) {
+    var src = config && typeof config === 'object' ? config : {};
+    if (normalizeFontMode(src.fontMode) === FONT_MODE_ADVANCED) {
+      var cfg = createAdvancedFontConfig(src.advancedFontConfig);
+      return resolveCloudGoogleFont(cfg.latinFont, cfg.latinFontId);
+    }
+    return resolveCloudGoogleFont(src.selectedFont, src.selectedFontId);
+  }
+
   function createAdvancedFontConfig(config) {
     return {
       cjkFont: config && typeof config.cjkFont === 'string' ? config.cjkFont : '',
@@ -203,6 +260,7 @@
       fontMode: normalizeFontMode(src.fontMode),
       selectedFont: typeof src.selectedFont === 'string' ? src.selectedFont : '',
       selectedFontId: typeof src.selectedFontId === 'string' ? src.selectedFontId : '',
+      cloudFontWeight: normalizeCloudFontWeight(src.cloudFontWeight),
       advancedFontConfig: createAdvancedFontConfig(src.advancedFontConfig),
     };
   }
@@ -1027,6 +1085,57 @@
     selectEl.value = labelName;
   }
 
+  function populateCloudWeightSelect(opts) {
+    var o = opts || {};
+    var doc = o.doc;
+    var selectEl = o.selectEl;
+    if (!doc || !selectEl) return CLOUD_FONT_WEIGHT_AUTO;
+
+    var cloudFont = o.cloudFont || null;
+    var labels = o.labels || {};
+    selectEl.textContent = '';
+
+    if (!cloudFont) {
+      var disabledOpt = doc.createElement('option');
+      disabledOpt.value = CLOUD_FONT_WEIGHT_AUTO;
+      disabledOpt.textContent = labels.cloudOnly || 'Auto (Cloud fonts only)';
+      selectEl.add(disabledOpt);
+      selectEl.disabled = true;
+      selectEl.selectedIndex = 0;
+      selectEl.value = CLOUD_FONT_WEIGHT_AUTO;
+      return CLOUD_FONT_WEIGHT_AUTO;
+    }
+
+    selectEl.disabled = false;
+    var effectiveWeight = resolveEffectiveCloudFontWeight(cloudFont, o.selectedWeight);
+    var supported = Array.isArray(cloudFont.weights) && cloudFont.weights.length
+      ? cloudFont.weights
+      : BASIC_CLOUD_WEIGHTS;
+
+    var autoOpt = doc.createElement('option');
+    autoOpt.value = CLOUD_FONT_WEIGHT_AUTO;
+    autoOpt.textContent = labels.auto || 'Auto (Page default)';
+    selectEl.add(autoOpt);
+
+    var matchIdx = 0;
+    for (var i = 0; i < CLOUD_FONT_WEIGHT_VALUES.length; i++) {
+      var w = CLOUD_FONT_WEIGHT_VALUES[i];
+      var isSupported = supported.indexOf(w) !== -1;
+      var wOpt = doc.createElement('option');
+      wOpt.value = w;
+      wOpt.disabled = !isSupported;
+      wOpt.textContent = (labels[w] || w) + (isSupported ? '' : (labels.unsupportedSuffix || ' (Unavailable)'));
+      selectEl.add(wOpt);
+      if (w === effectiveWeight && isSupported) {
+        matchIdx = i + 1;
+      }
+    }
+
+    selectEl.selectedIndex = matchIdx;
+    selectEl.value = matchIdx === 0 ? CLOUD_FONT_WEIGHT_AUTO : effectiveWeight;
+    return selectEl.value;
+  }
+
   function normalizeLigatureText(text) {
     return String(text || '')
       .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
@@ -1041,6 +1150,8 @@
     STORAGE_KEYS: STORAGE_KEYS,
     CLOUD_GOOGLE_FONT_PREFIX: CLOUD_GOOGLE_FONT_PREFIX,
     CLOUD_GOOGLE_FONT_ATTR: CLOUD_GOOGLE_FONT_ATTR,
+    CLOUD_FONT_WEIGHT_AUTO: CLOUD_FONT_WEIGHT_AUTO,
+    CLOUD_FONT_WEIGHT_VALUES: CLOUD_FONT_WEIGHT_VALUES,
     CLOUD_GOOGLE_FONTS: CLOUD_GOOGLE_FONTS,
     LEGACY_SITE_DISABLE_KEY: LEGACY_SITE_DISABLE_KEY,
     SITE_DISABLED_PREFIX: SITE_DISABLED_PREFIX,
@@ -1064,6 +1175,9 @@
     CJK_UNICODE_RANGE: CJK_UNICODE_RANGE,
     ICON_FONT_NAME_REGEX: ICON_FONT_NAME_REGEX,
     normalizeFontMode: normalizeFontMode,
+    normalizeCloudFontWeight: normalizeCloudFontWeight,
+    resolveEffectiveCloudFontWeight: resolveEffectiveCloudFontWeight,
+    resolveActiveCloudFontFromConfig: resolveActiveCloudFontFromConfig,
     createAdvancedFontConfig: createAdvancedFontConfig,
     createSiteFontRule: createSiteFontRule,
     isSiteFontRuleEmpty: isSiteFontRuleEmpty,
@@ -1086,6 +1200,7 @@
     parseFontFamilyList: parseFontFamilyList,
     serializeFontFamilyList: serializeFontFamilyList,
     populateFontSelect: populateFontSelect,
+    populateCloudWeightSelect: populateCloudWeightSelect,
     normalizeLigatureText: normalizeLigatureText,
   });
 

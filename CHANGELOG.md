@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.2 - 2026-11-25
+
+- **Cloud Google Fonts Weight Control (`extension/shared.js`, `extension/content.js`, `extension/popup.html`, `extension/popup.js`, `extension/options.html`, `extension/options.js`)**:
+  - Expanded Google Fonts CSS2 URLs for the 8 multi-weight monospace fonts (`JetBrains Mono`, `Fira Code`, `Google Sans Code`, `Geist Mono`, `Source Code Pro`, `Intel One Mono`, `Lilex`, `Atkinson Hyperlegible Mono`) to `wght@300;400;500;600;700`, while keeping `Atkinson Hyperlegible` and `Anonymous Pro` strictly capped at their supported `400;700` weights (`weights` metadata + `resolveEffectiveCloudFontWeight` fallback).
+  - Added `cloudFontWeight` (`auto | 300 | 400 | 500 | 600 | 700`) storage key, per-site rule normalization (`createSiteFontRule`), and shared selector populator (`populateCloudWeightSelect`) so users can fine-tune body font weight in both global/per-site popup scopes and `options.html`, with live preview (`previewInput.style.fontWeight`) and automatic disabling when local/default fonts are active.
+  - Updated `buildRulesCss` in `extension/content.js` to inject a scoped `font-weight: <N> !important` rule only when an active Cloud Google Font has a non-`auto` weight, explicitly excluding `h1`–`h6`, `strong`, `b`, `th` (and their descendants) plus `svg` and active icon/pending nodes so heading and bold hierarchy remains intact.
+  - Bumped extension version to `2.2.2` in `extension/manifest.json` and updated `extension/whats-new.html`, `extension/whats-new.js`, `readme.md`, and tests across `tests/`.
+
 ## 2.2.1 - 2026-11-25
 
 - **Bumped extension version to `2.2.1`** and added `whatsNewSeenVersion !== manifest.version` fallback detection in `extension/popup.js` alongside `reason === 'install'` baseline marking in `extension/background.js`, ensuring existing users and unpacked extension reloads reliably open `whats-new.html` once in a background tab on first post-update popup click.

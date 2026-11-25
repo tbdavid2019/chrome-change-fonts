@@ -105,6 +105,7 @@
     storageReady: false,
     selectedFont: '',
     selectedFontId: '',
+    cloudFontWeight: SHARED.CLOUD_FONT_WEIGHT_AUTO,
     isEnabled: false,
     fontMode: SHARED.FONT_MODE_BASIC,
     advancedFontConfig: SHARED.createAdvancedFontConfig(),
@@ -196,6 +197,7 @@
         fontMode: state.fontMode,
         selectedFont: state.selectedFont,
         selectedFontId: state.selectedFontId,
+        cloudFontWeight: state.cloudFontWeight,
         advancedFontConfig: state.advancedFontConfig,
       },
       resolveActiveSiteFontRule()
@@ -204,12 +206,14 @@
 
   function getActiveCloudGoogleFont() {
     if (!isEffectivelyEnabled()) return null;
+    return SHARED.resolveActiveCloudFontFromConfig(getEffectiveFontSettings());
+  }
+
+  function getEffectiveCloudFontWeight() {
+    if (!isEffectivelyEnabled()) return SHARED.CLOUD_FONT_WEIGHT_AUTO;
     var effective = getEffectiveFontSettings();
-    if (effective.fontMode === SHARED.FONT_MODE_ADVANCED) {
-      var cfg = effective.advancedFontConfig;
-      return SHARED.resolveCloudGoogleFont(cfg.latinFont, cfg.latinFontId);
-    }
-    return SHARED.resolveCloudGoogleFont(effective.selectedFont, effective.selectedFontId);
+    var cloudFont = SHARED.resolveActiveCloudFontFromConfig(effective);
+    return SHARED.resolveEffectiveCloudFontWeight(cloudFont, effective.cloudFontWeight);
   }
 
   function isPrimaryFontSetEmpty() {
@@ -263,6 +267,7 @@
       selectedFont: effective.selectedFont,
       selectedFontId: effective.selectedFontId,
       cloudFontId: cloudFont ? cloudFont.id : '',
+      effectiveCloudWeight: getEffectiveCloudFontWeight(),
       cjkFont: cfg.cjkFont,
       cjkFontId: cfg.cjkFontId,
       latinFont: cfg.latinFont,
@@ -353,6 +358,40 @@
       '      font-family: ' + fontStack + ' !important;\n' +
       '    }'
     );
+
+    var effectiveCloudWeight = getEffectiveCloudFontWeight();
+    if (effectiveCloudWeight !== SHARED.CLOUD_FONT_WEIGHT_AUTO) {
+      var weightExcludeSuffix =
+        ':not(svg, svg *, ' +
+        '[' + SHARED.ACTIVE_DOM_ATTRS.ICON_FONT + '], ' +
+        '[' + SHARED.ACTIVE_DOM_ATTRS.ICON_FONT + '] *, ' +
+        '[' + SHARED.ACTIVE_DOM_ATTRS.PENDING + '], ' +
+        'h1, h1 *, h2, h2 *, h3, h3 *, h4, h4 *, h5, h5 *, h6, h6 *, ' +
+        'strong, strong *, b, b *, th, th *)';
+      var weightSelectors = isShadowRoot
+        ? [
+            ':host' + weightExcludeSuffix,
+            ':host *' + weightExcludeSuffix,
+            ':host input' + weightExcludeSuffix,
+            ':host textarea' + weightExcludeSuffix,
+            ':host select' + weightExcludeSuffix,
+            ':host button' + weightExcludeSuffix,
+          ]
+        : [
+            'html' + weightExcludeSuffix,
+            'body' + weightExcludeSuffix,
+            'body *' + weightExcludeSuffix,
+            'input' + weightExcludeSuffix,
+            'textarea' + weightExcludeSuffix,
+            'select' + weightExcludeSuffix,
+            'button' + weightExcludeSuffix,
+          ];
+      parts.push(
+        '\n    ' + weightSelectors.join(', ') + ' {\n' +
+        '      font-weight: ' + effectiveCloudWeight + ' !important;\n' +
+        '    }'
+      );
+    }
 
     for (var i = 0; i < indexedFontsList.length; i++) {
       var escapedFamily = indexedFontsList[i];
@@ -2739,6 +2778,7 @@
     var keys = [
       SHARED.STORAGE_KEYS.SELECTED_FONT,
       SHARED.STORAGE_KEYS.SELECTED_FONT_ID,
+      SHARED.STORAGE_KEYS.CLOUD_FONT_WEIGHT,
       SHARED.STORAGE_KEYS.IS_ENABLED,
       SHARED.STORAGE_KEYS.FONT_MODE,
       SHARED.STORAGE_KEYS.ADVANCED_FONT_CONFIG,
@@ -2758,6 +2798,7 @@
     state.selectedFontId = typeof src[SHARED.STORAGE_KEYS.SELECTED_FONT_ID] === 'string'
       ? src[SHARED.STORAGE_KEYS.SELECTED_FONT_ID]
       : '';
+    state.cloudFontWeight = SHARED.normalizeCloudFontWeight(src[SHARED.STORAGE_KEYS.CLOUD_FONT_WEIGHT]);
     state.isEnabled = Boolean(src[SHARED.STORAGE_KEYS.IS_ENABLED]);
     state.fontMode = SHARED.normalizeFontMode(src[SHARED.STORAGE_KEYS.FONT_MODE]);
     state.advancedFontConfig = SHARED.createAdvancedFontConfig(src[SHARED.STORAGE_KEYS.ADVANCED_FONT_CONFIG]);
@@ -2783,6 +2824,7 @@
     var globalKeys = [
       SHARED.STORAGE_KEYS.SELECTED_FONT,
       SHARED.STORAGE_KEYS.SELECTED_FONT_ID,
+      SHARED.STORAGE_KEYS.CLOUD_FONT_WEIGHT,
       SHARED.STORAGE_KEYS.IS_ENABLED,
       SHARED.STORAGE_KEYS.FONT_MODE,
       SHARED.STORAGE_KEYS.ADVANCED_FONT_CONFIG,
@@ -2819,6 +2861,11 @@
     if (changes[SHARED.STORAGE_KEYS.SELECTED_FONT_ID]) {
       var nextFontId = changes[SHARED.STORAGE_KEYS.SELECTED_FONT_ID].newValue;
       state.selectedFontId = typeof nextFontId === 'string' ? nextFontId : '';
+    }
+    if (changes[SHARED.STORAGE_KEYS.CLOUD_FONT_WEIGHT]) {
+      state.cloudFontWeight = SHARED.normalizeCloudFontWeight(
+        changes[SHARED.STORAGE_KEYS.CLOUD_FONT_WEIGHT].newValue
+      );
     }
     if (changes[SHARED.STORAGE_KEYS.IS_ENABLED]) {
       state.isEnabled = Boolean(changes[SHARED.STORAGE_KEYS.IS_ENABLED].newValue);
@@ -3002,6 +3049,8 @@
         fontMode: effective.fontMode,
         selectedFont: effective.selectedFont,
         selectedFontId: effective.selectedFontId || '',
+        cloudFontWeight: effective.cloudFontWeight || SHARED.CLOUD_FONT_WEIGHT_AUTO,
+        effectiveCloudFontWeight: getEffectiveCloudFontWeight(),
         advancedFontConfig: SHARED.createAdvancedFontConfig(effective.advancedFontConfig),
         activeSiteFontRule: resolveActiveSiteFontRule(),
         isSiteDisabled: computeEffectiveSiteDisabled(),

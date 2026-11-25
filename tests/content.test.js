@@ -1215,13 +1215,25 @@ test('On-demand Google Fonts CDN link injection, rescan isolation, split mode st
   assert.doesNotMatch(css, /FontChangerLatin/);
   assert.match(css, /"FontChangerCjk", "Geist Mono"/);
 
-  // Explicit system font (non-gf fontId) removes cloud CDN link cleanly (zero external requests).
+  // Cloud font with non-auto weight emits scoped font-weight excluding h1-h6/strong/b/th/icons.
+  env.chrome.storage.sync.set({
+    fontMode: 'basic',
+    selectedFont: 'Fira Code',
+    selectedFontId: 'gf:fira-code',
+    cloudFontWeight: '500',
+  });
+  const weightedCss = env.controller().buildCss(false);
+  assert.match(weightedCss, /font-weight:\s*500 !important/);
+  assert.match(weightedCss, /h1, h1 \*, h2, h2 \*.*strong, strong \*, b, b \*, th, th \*/);
+
+  // Explicit system font (non-gf fontId) removes cloud CDN link cleanly (zero external requests) and omits font-weight.
   env.chrome.storage.sync.set({
     fontMode: 'basic',
     selectedFont: 'JetBrains Mono',
     selectedFontId: 'JetBrainsMono-Regular',
   });
   assert.equal(doc.querySelectorAll('[' + shared.CLOUD_GOOGLE_FONT_ATTR + ']').length, 0);
+  assert.doesNotMatch(env.controller().buildCss(false), /font-weight:\s*500 !important/);
 
   // Re-enable cloud font then disable globally -> Dormant cleanup removes link.
   env.chrome.storage.sync.set({

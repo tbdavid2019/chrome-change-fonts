@@ -250,7 +250,7 @@ test('extension/ directory contains strictly runtime files with zero tests or de
   ]);
 
   const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_DIR, 'manifest.json'), 'utf8'));
-  assert.equal(manifest.version, '2.2.1');
+  assert.equal(manifest.version, '2.2.2');
   assert.deepEqual(manifest.permissions, ['activeTab', 'storage', 'fontSettings', 'scripting']);
   assert.deepEqual(manifest.content_scripts[0].js, ['shared.js', 'content.js']);
   assert.deepEqual(manifest.background, { service_worker: 'background.js' });
@@ -787,6 +787,82 @@ test('popup.html advanced split mode fits inside Chrome 600px max popup height w
     assert.ok(match, 'Chrome must output popup layout metrics');
     const metrics = JSON.parse(match[1]);
     assert.ok(metrics.height <= 580, `Expected popup height <= 580px in advanced mode, got ${metrics.height}px`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('cloud font weight CSS rule sets body weight while preserving h1-h6/strong/b/th hierarchy in Chrome', () => {
+  assert.ok(CHROME_PATH, 'Chrome or Chromium must be installed for weight CSS verification');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fc-weight-css-'));
+  try {
+    const file = path.join(dir, 'weight-check.html');
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body, p { font-weight: 400; }
+    h1, h2, strong, b, th { font-weight: 700; }
+    .fa-icon { font-weight: 900; }
+    html:not(svg, svg *, [data-fc-icon-font], [data-fc-icon-font] *, [data-fc-pending], h1, h1 *, h2, h2 *, h3, h3 *, h4, h4 *, h5, h5 *, h6, h6 *, strong, strong *, b, b *, th, th *),
+    body:not(svg, svg *, [data-fc-icon-font], [data-fc-icon-font] *, [data-fc-pending], h1, h1 *, h2, h2 *, h3, h3 *, h4, h4 *, h5, h5 *, h6, h6 *, strong, strong *, b, b *, th, th *),
+    body *:not(svg, svg *, [data-fc-icon-font], [data-fc-icon-font] *, [data-fc-pending], h1, h1 *, h2, h2 *, h3, h3 *, h4, h4 *, h5, h5 *, h6, h6 *, strong, strong *, b, b *, th, th *) {
+      font-weight: 300 !important;
+    }
+  </style>
+</head>
+<body>
+  <p id="para">Body paragraph <span id="para-span">inline text</span></p>
+  <h1 id="h1">Heading 1</h1>
+  <h2 id="h2"><a id="h2-link" href="#">Heading link</a></h2>
+  <strong id="strong"><span id="strong-span">Bold span</span></strong>
+  <b id="b">Bold tag</b>
+  <table><tr><th id="th"><div id="th-div">Column header</div></th></tr></table>
+  <i id="icon" class="fa-icon" data-fc-icon-font="0">X</i>
+  <pre id="weight-result"></pre>
+  <script>
+    var pick = function (id) { return getComputedStyle(document.getElementById(id)).fontWeight; };
+    document.getElementById('weight-result').textContent = JSON.stringify({
+      para: pick('para'),
+      paraSpan: pick('para-span'),
+      h1: pick('h1'),
+      h2Link: pick('h2-link'),
+      strong: pick('strong'),
+      strongSpan: pick('strong-span'),
+      b: pick('b'),
+      thDiv: pick('th-div'),
+      icon: pick('icon')
+    });
+  </script>
+</body>
+</html>`;
+    fs.writeFileSync(file, html);
+    const run = spawnSync(
+      CHROME_PATH,
+      [
+        '--headless=new',
+        '--no-first-run',
+        '--disable-gpu',
+        '--user-data-dir=' + path.join(dir, 'profile'),
+        '--dump-dom',
+        pathToFileURL(file).href,
+      ],
+      { encoding: 'utf8', timeout: 30000, maxBuffer: 1024 * 1024 }
+    );
+    assert.equal(run.status, 0, run.error?.message || run.stderr);
+    const match = run.stdout.match(/<pre id="weight-result">([^<]+)<\/pre>/);
+    assert.ok(match, 'Chrome must output computed fontWeight metrics');
+    const w = JSON.parse(match[1]);
+    assert.equal(w.para, '300');
+    assert.equal(w.paraSpan, '300');
+    assert.equal(w.h1, '700');
+    assert.equal(w.h2Link, '700');
+    assert.equal(w.strong, '700');
+    assert.equal(w.strongSpan, '700');
+    assert.equal(w.b, '700');
+    assert.equal(w.thDiv, '700');
+    assert.equal(w.icon, '900');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

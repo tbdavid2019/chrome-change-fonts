@@ -410,4 +410,16 @@ test('CLOUD_GOOGLE_FONTS catalog and getFontStack handle cloud fonts and explici
   );
   assert.match(splitStack, /^"FontChangerCjk", "Fira Code", /);
   assert.doesNotMatch(splitStack, /FontChangerLatin/);
+
+  // Cloud font weights normalize safely and snap unsupported weights to nearest supported slot.
+  assert.equal(shared.normalizeCloudFontWeight('500'), '500');
+  assert.equal(shared.normalizeCloudFontWeight(300), '300');
+  assert.equal(shared.normalizeCloudFontWeight('999'), 'auto');
+  assert.equal(shared.resolveEffectiveCloudFontWeight(fira, '300'), '300');
+  const anon = shared.getCloudGoogleFont('gf:anonymous-pro');
+  assert.deepEqual(Array.from(anon.weights), ['400', '700']);
+  assert.equal(shared.resolveEffectiveCloudFontWeight(anon, '300'), '400');
+  assert.equal(shared.resolveEffectiveCloudFontWeight(anon, '500'), '400');
+  assert.equal(shared.resolveEffectiveCloudFontWeight(anon, '600'), '700');
+  assert.equal(shared.resolveEffectiveCloudFontWeight(null, '700'), 'auto');
 });

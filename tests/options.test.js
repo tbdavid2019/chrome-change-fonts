@@ -90,7 +90,8 @@ function createOptionsHarness(initialSync = {}) {
     'siteFontHeading', 'siteFontCountBadge', 'siteFontSearchInput', 'siteFontHostLabel', 'siteFontHostInput',
     'siteFontModeLabel', 'siteFontModeSelect', 'siteBasicFontField', 'siteBasicFontLabel', 'siteBasicFontSelect',
     'siteCjkFontField', 'siteCjkFontLabel', 'siteCjkFontSelect', 'siteLatinFontField', 'siteLatinFontLabel',
-    'siteLatinFontSelect', 'cancelEditSiteFontBtn', 'saveSiteFontBtn', 'siteFontEmpty', 'siteFontList',
+    'siteLatinFontSelect', 'siteCloudWeightField', 'siteCloudWeightLabel', 'siteCloudWeightSelect',
+    'cancelEditSiteFontBtn', 'saveSiteFontBtn', 'siteFontEmpty', 'siteFontList',
   ];
 
   const byId = new Map();
@@ -253,15 +254,22 @@ test('Options page lists, searches, adds, removes excluded sites and per-site fo
   h.byId.get('saveSiteFontBtn').dispatch('click');
   assert.equal(h.syncStore['siteFont:localhost:3000'].selectedFont, 'Arial');
 
-  // Cloud Google Fonts appear in basic & Non-CJK selects (not CJK) and persist gf:* fontId.
+  // Cloud Google Fonts appear in basic & Non-CJK selects (not CJK) and persist gf:* fontId + cloudFontWeight.
   const cjkSelect = h.byId.get('siteCjkFontSelect');
+  const cloudWeightSel = h.byId.get('siteCloudWeightSelect');
   assert.equal(cjkSelect.options.some((o) => o.dataset && o.dataset.cloudFont === '1'), false);
   const cloudOpt = basicSel.options.find((o) => o.dataset && o.dataset.fontId === 'gf:fira-code');
   assert.ok(cloudOpt);
   h.byId.get('siteFontHostInput').value = 'docs.example.org';
   basicSel.selectedIndex = basicSel.options.indexOf(cloudOpt);
   basicSel.value = 'Fira Code';
+  basicSel.dispatch('change');
+  assert.equal(cloudWeightSel.disabled, false);
+  cloudWeightSel.selectedIndex = cloudWeightSel.options.findIndex((o) => o.value === '600');
+  cloudWeightSel.value = '600';
+  cloudWeightSel.dispatch('change');
   h.byId.get('saveSiteFontBtn').dispatch('click');
   assert.equal(h.syncStore['siteFont:docs.example.org'].selectedFont, 'Fira Code');
   assert.equal(h.syncStore['siteFont:docs.example.org'].selectedFontId, 'gf:fira-code');
+  assert.equal(h.syncStore['siteFont:docs.example.org'].cloudFontWeight, '600');
 });

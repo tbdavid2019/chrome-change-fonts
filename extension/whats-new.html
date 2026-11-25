@@ -407,7 +407,7 @@
       <div class="brand-group">
         <span class="brand-badge" aria-hidden="true">333</span>
         <h1>改字體 333 · 更新說明與使用指引 / What's New &amp; Guide</h1>
-        <span class="version-badge" id="versionBadge">v2.2.1</span>
+        <span class="version-badge" id="versionBadge">v2.2.2</span>
       </div>
       <div class="header-actions">
         <button type="button" class="pill-btn is-primary" id="openOptionsBtn">網站規則 / Site Rules</button>
@@ -438,23 +438,23 @@
 
         <div class="feature-grid">
           <article class="info-box">
-            <h3>✨ v2.2.1 更新重點（免裝字體也能換漂亮程式與閱讀字體）</h3>
+            <h3>✨ v2.2.2 更新重點（雲端字體字重調整與雙層級保護）</h3>
             <ul>
-              <li><strong>新增 10 款精選 Google Fonts 雲端字體（置頂顯示）</strong>：打開彈窗字體選單即可在最上方看到「雲端字體 (Google Fonts・按需載入)」，不需在電腦預先安裝，換電腦或使用 Chromebook 都能跨裝置同步套用。</li>
-              <li><strong>按需載入・零多餘權限</strong>：選用「本機字體」或預設字體時<strong>完全不連網</strong>；只有選到雲端字體時才透過 <code>referrerpolicy="no-referrer"</code> 按需載入字型，不會傳送您正在瀏覽的網址。</li>
-              <li><strong>自動與「CJK / 英數分開」完美搭配</strong>：在分流模式中，中文保留您指定的本機字體，英數與標點可單獨選用 Google Fonts 雲端字體。</li>
+              <li><strong>新增「雲端字重」微調選單</strong>：選用 Google Fonts 雲端字體（單一字體或分流模式非 CJK 皆適用）時，可自由選擇 <code>跟隨網頁預設</code>、<code>300 細體</code>、<code>400 標準</code>、<code>500 中等</code>、<code>600 半粗</code> 或 <code>700 粗體</code>，即時預覽區與目標網頁同步套用；選用本機字體時會安全停用。</li>
+              <li><strong>完整支援清單與智慧層級保護</strong>：前 8 款等寬程式與高易讀字體完整支援 <code>300–700</code>（<code>Atkinson Hyperlegible</code> 與 <code>Anonymous Pro</code> 提供 <code>400 / 700</code>）；只調整內文基準字重，<strong>保留 <code>h1–h6</code> 標題、<code>strong</code>、<code>b</code>、<code>th</code> 粗體層級與圖示字體</strong>。</li>
+              <li><strong>內建 10 款置頂雲端字體（免裝字體・按需載入）</strong>：<code>cloud</code> 分組位於選單最上方，支援按需載入（<code>referrerpolicy="no-referrer"</code>）與「網站規則管理頁」單站字重記憶。</li>
             </ul>
             <div class="font-pills" aria-label="支援的 10 款雲端字體">
-              <span class="font-pill">JetBrains Mono</span>
-              <span class="font-pill">Fira Code</span>
-              <span class="font-pill">Google Sans Code</span>
-              <span class="font-pill">Geist Mono</span>
-              <span class="font-pill">Source Code Pro</span>
-              <span class="font-pill">Intel One Mono</span>
-              <span class="font-pill">Lilex</span>
-              <span class="font-pill">Atkinson Hyperlegible Mono</span>
-              <span class="font-pill">Atkinson Hyperlegible</span>
-              <span class="font-pill">Anonymous Pro</span>
+              <span class="font-pill">JetBrains Mono (300–700)</span>
+              <span class="font-pill">Fira Code (300–700)</span>
+              <span class="font-pill">Google Sans Code (300–700)</span>
+              <span class="font-pill">Geist Mono (300–700)</span>
+              <span class="font-pill">Source Code Pro (300–700)</span>
+              <span class="font-pill">Intel One Mono (300–700)</span>
+              <span class="font-pill">Lilex (300–700)</span>
+              <span class="font-pill">Atkinson Hyperlegible Mono (300–700)</span>
+              <span class="font-pill">Atkinson Hyperlegible (400/700)</span>
+              <span class="font-pill">Anonymous Pro (400/700)</span>
             </div>
           </article>
 
@@ -462,9 +462,9 @@
             <h3>📖 4 步驟快速上手指引</h3>
             <ol>
               <li><strong>開啟擴充功能彈窗</strong>：點擊瀏覽器右上角 <code>333</code> 圖示（版本更新後首次開啟會自動於背景分頁打開本頁，不打斷您的操作）。</li>
-              <li><strong>挑選字體</strong>：從最上方「雲端字體」挑選免安裝字體，或從下方「本機字體」選擇電腦已安裝字體；需要中英混排時可切換至「CJK / 英數分開」。</li>
-              <li><strong>啟用與即時預覽</strong>：勾選「啟用字體替換」，並可直接在彈窗下方預覽區輸入文字測試字體效果。</li>
-              <li><strong>管理個別網站</strong>：可切換「僅此網站」指定特定網站專用字體，或勾選「此網站不生效」（圖示會顯示 <code>OFF</code> 徽章），並可隨時點「網站清單」統一管理規則。</li>
+              <li><strong>挑選字體與雲端字重</strong>：從最上方「雲端字體」挑選免安裝字體並於「雲端字重」微調粗細，或從下方「本機字體」選擇電腦已安裝字體；需要中英混排時可切換至「CJK / 英數分開」。</li>
+              <li><strong>啟用與即時預覽</strong>：勾選「啟用字體替換」，並可直接在彈窗下方預覽區輸入文字確認字體與字重效果。</li>
+              <li><strong>管理個別網站</strong>：可切換「僅此網站」指定特定網站專用字體與字重，或勾選「此網站不生效」（圖示會顯示 <code>OFF</code> 徽章），並可隨時點「網站清單」統一管理規則。</li>
             </ol>
           </article>
         </div>
@@ -482,23 +482,23 @@
 
         <div class="feature-grid">
           <article class="info-box">
-            <h3>✨ What's New in v2.2.1</h3>
+            <h3>✨ What's New in v2.2.2</h3>
             <ul>
-              <li><strong>10 Curated Google Fonts Listed at the Top</strong>: A dedicated <em>Cloud Fonts (Google Fonts · On-Demand)</em> group now appears right at the top of the font selector—no local OS font installation needed, and your synced font works across devices (Windows, macOS, Linux, Chromebook).</li>
-              <li><strong>On-Demand &amp; Privacy-First (Zero New Permissions)</strong>: Selecting default or local system fonts makes <strong>zero external requests</strong>. Only when a cloud font is active does the extension load Google Fonts with <code>referrerpolicy="no-referrer"</code> so your visited URL is never sent.</li>
-              <li><strong>Seamless CJK / Latin Split Support</strong>: Pair any local CJK font with a Google Font for Non-CJK text (Latin letters, digits, punctuation) in split mode.</li>
+              <li><strong>Cloud Font Weight Control</strong>: When a Cloud Google Font is active (in either <em>Single font</em> or <em>CJK / Latin split → Non-CJK</em>), adjust body text weight between <code>Auto</code>, <code>300 Light</code>, <code>400 Regular</code>, <code>500 Medium</code>, <code>600 SemiBold</code>, and <code>700 Bold</code>, with live preview in the popup. Automatically disabled for local system fonts.</li>
+              <li><strong>Hierarchy &amp; Compatibility Preserved</strong>: 8 curated monospace cloud fonts support full <code>300–700</code> (while <code>Atkinson Hyperlegible</code> &amp; <code>Anonymous Pro</code> enable <code>400 / 700</code>). Only base body weight is adjusted—<strong><code>h1–h6</code> headings, <code>strong</code>, <code>b</code>, <code>th</code>, and icon fonts keep their visual hierarchy</strong>.</li>
+              <li><strong>10 Curated Cloud Fonts Listed at the Top</strong>: Instant Google Fonts loading with <code>referrerpolicy="no-referrer"</code>, zero extra permissions, and per-site weight overrides in <em>Site list</em>.</li>
             </ul>
             <div class="font-pills" aria-label="10 supported cloud fonts">
-              <span class="font-pill">JetBrains Mono</span>
-              <span class="font-pill">Fira Code</span>
-              <span class="font-pill">Google Sans Code</span>
-              <span class="font-pill">Geist Mono</span>
-              <span class="font-pill">Source Code Pro</span>
-              <span class="font-pill">Intel One Mono</span>
-              <span class="font-pill">Lilex</span>
-              <span class="font-pill">Atkinson Hyperlegible Mono</span>
-              <span class="font-pill">Atkinson Hyperlegible</span>
-              <span class="font-pill">Anonymous Pro</span>
+              <span class="font-pill">JetBrains Mono (300–700)</span>
+              <span class="font-pill">Fira Code (300–700)</span>
+              <span class="font-pill">Google Sans Code (300–700)</span>
+              <span class="font-pill">Geist Mono (300–700)</span>
+              <span class="font-pill">Source Code Pro (300–700)</span>
+              <span class="font-pill">Intel One Mono (300–700)</span>
+              <span class="font-pill">Lilex (300–700)</span>
+              <span class="font-pill">Atkinson Hyperlegible Mono (300–700)</span>
+              <span class="font-pill">Atkinson Hyperlegible (400/700)</span>
+              <span class="font-pill">Anonymous Pro (400/700)</span>
             </div>
           </article>
 
@@ -506,9 +506,9 @@
             <h3>📖 4-Step Quick Start Guide</h3>
             <ol>
               <li><strong>Open the Popup</strong>: Click the <code>333</code> toolbar icon (on the first click after an extension update, this page opens quietly in a background tab without closing your popup).</li>
-              <li><strong>Choose Your Font</strong>: Pick an instant cloud font from the top <em>Cloud Fonts</em> group or any locally installed font below; switch to <em>CJK / Latin split</em> to set separate fonts for CJK and Latin text.</li>
-              <li><strong>Enable &amp; Preview</strong>: Check <em>Enable font replacement</em> and test your typography directly inside the live preview box.</li>
-              <li><strong>Customize Per-Site Rules</strong>: Use <em>This site only</em> for per-site font overrides, toggle <em>Disable on this site</em> (shows an <code>OFF</code> badge), or open <em>Site list</em> to manage all rules in one place.</li>
+              <li><strong>Choose Your Font &amp; Cloud Weight</strong>: Pick an instant cloud font from the top <em>Cloud Fonts</em> group and fine-tune <em>Cloud weight</em>, or choose any locally installed font below; switch to <em>CJK / Latin split</em> to set separate fonts for CJK and Latin text.</li>
+              <li><strong>Enable &amp; Preview</strong>: Check <em>Enable font replacement</em> and test both typeface and weight directly inside the live preview box.</li>
+              <li><strong>Customize Per-Site Rules</strong>: Use <em>This site only</em> for per-site font &amp; weight overrides, toggle <em>Disable on this site</em> (shows an <code>OFF</code> badge), or open <em>Site list</em> to manage all rules in one place.</li>
             </ol>
           </article>
         </div>

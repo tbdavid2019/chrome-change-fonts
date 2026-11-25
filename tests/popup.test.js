@@ -116,7 +116,8 @@ function createPopupHarness(options = {}) {
     'siteDisableLabelText', 'siteBadge', 'statusText', 'previewTitle', 'previewInput',
     'resetButton', 'modeHintText', 'basicModeTab', 'advancedModeTab', 'basicSettingsPanel',
     'advancedSettingsPanel', 'advancedCjkLabel', 'advancedLatinLabel',
-    'advancedCjkSelect', 'advancedLatinSelect', 'enableCheckbox', 'siteDisableCheckbox',
+    'advancedCjkSelect', 'advancedLatinSelect', 'cloudWeightRow', 'cloudWeightLabel', 'cloudWeightSelect',
+    'enableCheckbox', 'siteDisableCheckbox',
     'globalScopeTab', 'siteScopeTab', 'clearSiteFontBtn', 'manageSitesBtn', 'whatsNewBtn', 'feedbackBtn',
   ];
 
@@ -579,6 +580,7 @@ test('Popup exposes curated Cloud Google Fonts, injects preview stylesheet on de
       isEnabled: true,
       selectedFont: 'Fira Code',
       selectedFontId: 'gf:fira-code',
+      cloudFontWeight: '500',
     },
     fontList: [{ displayName: 'Arial', fontId: 'Arial' }],
   });
@@ -587,10 +589,14 @@ test('Popup exposes curated Cloud Google Fonts, injects preview stylesheet on de
   const fontSelect = h.byId.get('fontSelect');
   const cjkSelect = h.byId.get('advancedCjkSelect');
   const latinSelect = h.byId.get('advancedLatinSelect');
+  const weightSelect = h.byId.get('cloudWeightSelect');
 
   assert.equal(fontSelect.value, 'Fira Code');
   assert.equal(fontSelect.selectedOptions[0].dataset.fontId, 'gf:fira-code');
   assert.equal(fontSelect.selectedOptions[0].dataset.unavailable, undefined);
+  assert.equal(weightSelect.disabled, false);
+  assert.equal(weightSelect.value, '500');
+  assert.equal(h.byId.get('previewInput').style.fontWeight, '500');
   assert.equal(fontSelect.children[0].tagName, 'OPTGROUP');
   assert.match(fontSelect.children[0].label, /雲端字體/);
   assert.equal(fontSelect.children[1].tagName, 'OPTGROUP');
@@ -601,13 +607,32 @@ test('Popup exposes curated Cloud Google Fonts, injects preview stylesheet on de
   const headLinks = h.byId.get('fontSelect') ? h.controller.getState() : null;
   assert.equal(headLinks.selectedFontId, 'gf:fira-code');
 
-  // Switch to system Arial -> persists empty/Arial fontId and removes cloud preview link.
+  // Switch to Atkinson Hyperlegible (only 400/700): weight 500 snaps cleanly to 400 and disables unsupported slots.
+  const atkOpt = fontSelect.options.find((o) => o.dataset && o.dataset.fontId === 'gf:atkinson-hyperlegible');
+  fontSelect.selectedIndex = fontSelect.options.indexOf(atkOpt);
+  fontSelect.value = atkOpt.value;
+  fontSelect.dispatch('change');
+  assert.equal(weightSelect.disabled, false);
+  assert.equal(weightSelect.value, '400');
+  assert.equal(weightSelect.options.find((o) => o.value === '300').disabled, true);
+  assert.equal(weightSelect.options.find((o) => o.value === '700').disabled, false);
+
+  // Switch weight to 700 -> persists cloudFontWeight: '700' and updates preview weight.
+  weightSelect.selectedIndex = weightSelect.options.findIndex((o) => o.value === '700');
+  weightSelect.value = '700';
+  weightSelect.dispatch('change');
+  assert.equal(h.syncStore.cloudFontWeight, '700');
+  assert.equal(h.byId.get('previewInput').style.fontWeight, '700');
+
+  // Switch to system Arial -> persists empty/Arial fontId, disables cloud weight control, clears preview fontWeight.
   const arialOpt = fontSelect.options.find((o) => o.value === 'Arial');
   fontSelect.selectedIndex = fontSelect.options.indexOf(arialOpt);
   fontSelect.value = 'Arial';
   fontSelect.dispatch('change');
   assert.equal(h.syncStore.selectedFont, 'Arial');
   assert.equal(h.syncStore.selectedFontId, 'Arial');
+  assert.equal(weightSelect.disabled, true);
+  assert.equal(h.byId.get('previewInput').style.fontWeight, '');
 });
 
 test("Popup opens What's New once in a background tab after update, stays silent in incognito, and opens in foreground on button click", async () => {

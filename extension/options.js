@@ -26,6 +26,16 @@
       siteBasicFontLabel: '字體',
       siteCjkFontLabel: 'CJK（中日韓）',
       siteLatinFontLabel: '非 CJK（英數與標點）',
+      siteCloudWeightLabel: '雲端字體字重',
+      cloudWeightCloudOnly: '跟隨網頁（僅雲端字體可用）',
+      cloudWeightAuto: '跟隨網頁預設',
+      cloudWeight300: '300 細體 (Light)',
+      cloudWeight400: '400 標準 (Regular)',
+      cloudWeight500: '500 中等 (Medium)',
+      cloudWeight600: '600 半粗 (SemiBold)',
+      cloudWeight700: '700 粗體 (Bold)',
+      cloudWeightUnsupportedSuffix: '（不支援）',
+      weightBadge: '字重 {weight}',
       defaultFontOption: '系統預設字體',
       systemFontsGroup: '本機字體',
       cloudFontsGroup: '雲端字體 (Google Fonts・按需載入)',
@@ -67,6 +77,16 @@
       siteBasicFontLabel: 'Font',
       siteCjkFontLabel: 'CJK (Chinese / Japanese / Korean)',
       siteLatinFontLabel: 'Non-CJK (Latin / numbers / punctuation)',
+      siteCloudWeightLabel: 'Cloud font weight',
+      cloudWeightCloudOnly: 'Auto (Cloud fonts only)',
+      cloudWeightAuto: 'Auto (Page default)',
+      cloudWeight300: '300 · Light',
+      cloudWeight400: '400 · Regular',
+      cloudWeight500: '500 · Medium',
+      cloudWeight600: '600 · SemiBold',
+      cloudWeight700: '700 · Bold',
+      cloudWeightUnsupportedSuffix: ' (Unavailable)',
+      weightBadge: 'Weight {weight}',
       defaultFontOption: 'System default font',
       systemFontsGroup: 'System Fonts',
       cloudFontsGroup: 'Cloud Fonts (Google Fonts · On-Demand)',
@@ -158,6 +178,9 @@
       siteLatinFontField: doc.getElementById('siteLatinFontField'),
       siteLatinFontLabel: doc.getElementById('siteLatinFontLabel'),
       siteLatinFontSelect: doc.getElementById('siteLatinFontSelect'),
+      siteCloudWeightField: doc.getElementById('siteCloudWeightField'),
+      siteCloudWeightLabel: doc.getElementById('siteCloudWeightLabel'),
+      siteCloudWeightSelect: doc.getElementById('siteCloudWeightSelect'),
       cancelEditSiteFontBtn: doc.getElementById('cancelEditSiteFontBtn'),
       saveSiteFontBtn: doc.getElementById('saveSiteFontBtn'),
       siteFontEmpty: doc.getElementById('siteFontEmpty'),
@@ -171,12 +194,42 @@
       siteFontEntries: [],
       totalSyncKeys: 0,
       editingHost: null,
+      draftCloudWeight: shared.CLOUD_FONT_WEIGHT_AUTO,
       statusText: '',
       statusKind: '',
     };
 
     function getMsgs() {
       return LOCALES[state.locale] || LOCALES.en;
+    }
+
+    function getFormActiveCloudFont() {
+      var isAdvanced = ui.siteFontModeSelect && ui.siteFontModeSelect.value === shared.FONT_MODE_ADVANCED;
+      var pair = getSelectedFontPair(isAdvanced ? ui.siteLatinFontSelect : ui.siteBasicFontSelect);
+      return shared.resolveCloudGoogleFont(pair.name, pair.fontId);
+    }
+
+    function syncSiteCloudWeightSelect(preferredWeight) {
+      if (!ui.siteCloudWeightSelect) return;
+      var msgs = getMsgs();
+      var weight = preferredWeight !== undefined ? preferredWeight : state.draftCloudWeight;
+      var cloudFont = getFormActiveCloudFont();
+      shared.populateCloudWeightSelect({
+        doc: doc,
+        selectEl: ui.siteCloudWeightSelect,
+        cloudFont: cloudFont,
+        selectedWeight: weight,
+        labels: {
+          cloudOnly: msgs.cloudWeightCloudOnly,
+          auto: msgs.cloudWeightAuto,
+          '300': msgs.cloudWeight300,
+          '400': msgs.cloudWeight400,
+          '500': msgs.cloudWeight500,
+          '600': msgs.cloudWeight600,
+          '700': msgs.cloudWeight700,
+          unsupportedSuffix: msgs.cloudWeightUnsupportedSuffix,
+        },
+      });
     }
 
     function setStatus(text, kind) {
@@ -248,6 +301,8 @@
       if (ui.siteBasicFontLabel) ui.siteBasicFontLabel.textContent = msgs.siteBasicFontLabel;
       if (ui.siteCjkFontLabel) ui.siteCjkFontLabel.textContent = msgs.siteCjkFontLabel;
       if (ui.siteLatinFontLabel) ui.siteLatinFontLabel.textContent = msgs.siteLatinFontLabel;
+      if (ui.siteCloudWeightLabel) ui.siteCloudWeightLabel.textContent = msgs.siteCloudWeightLabel;
+      syncSiteCloudWeightSelect();
       if (ui.saveSiteFontBtn) ui.saveSiteFontBtn.textContent = msgs.saveSiteFontBtn;
       if (ui.cancelEditSiteFontBtn) ui.cancelEditSiteFontBtn.textContent = msgs.cancelEditBtn;
       if (ui.siteFontEmpty) ui.siteFontEmpty.textContent = msgs.siteFontEmpty;
@@ -260,13 +315,18 @@
 
     function describeRule(rule) {
       var msgs = getMsgs();
+      var activeCloud = shared.resolveActiveCloudFontFromConfig(rule);
+      var effectiveWeight = shared.resolveEffectiveCloudFontWeight(activeCloud, rule.cloudFontWeight);
+      var weightSuffix = effectiveWeight !== shared.CLOUD_FONT_WEIGHT_AUTO
+        ? ' · ' + msgs.weightBadge.replace('{weight}', effectiveWeight)
+        : '';
       if (rule.fontMode === shared.FONT_MODE_ADVANCED) {
         var cfg = rule.advancedFontConfig;
         var cjk = cfg.cjkFont || cfg.cjkFontId || msgs.defaultFontOption;
         var lat = cfg.latinFont || cfg.latinFontId || msgs.defaultFontOption;
-        return msgs.modeAdvanced + ' — CJK: ' + cjk + ' | Non-CJK: ' + lat;
+        return msgs.modeAdvanced + ' — CJK: ' + cjk + ' | Non-CJK: ' + lat + weightSuffix;
       }
-      return msgs.modeBasic + ' — ' + (rule.selectedFont || msgs.defaultFontOption);
+      return msgs.modeBasic + ' — ' + (rule.selectedFont || msgs.defaultFontOption) + weightSuffix;
     }
 
     function renderExcludedList() {
@@ -377,6 +437,7 @@
 
     function loadRuleIntoForm(host, rule) {
       state.editingHost = host;
+      state.draftCloudWeight = shared.normalizeCloudFontWeight(rule.cloudFontWeight);
       if (ui.siteFontHostInput) ui.siteFontHostInput.value = host;
       if (ui.siteFontModeSelect) ui.siteFontModeSelect.value = rule.fontMode;
       populateSelectWithFonts(ui.siteBasicFontSelect, rule.selectedFont, rule.selectedFontId || rule.selectedFont, true);
@@ -392,16 +453,19 @@
         rule.advancedFontConfig.latinFontId,
         true
       );
+      syncSiteCloudWeightSelect(state.draftCloudWeight);
       updateSiteFontFormVisibility();
     }
 
     function resetSiteFontForm() {
       state.editingHost = null;
+      state.draftCloudWeight = shared.CLOUD_FONT_WEIGHT_AUTO;
       if (ui.siteFontHostInput) ui.siteFontHostInput.value = '';
       if (ui.siteFontModeSelect) ui.siteFontModeSelect.value = shared.FONT_MODE_BASIC;
       populateSelectWithFonts(ui.siteBasicFontSelect, '', '', true);
       populateSelectWithFonts(ui.siteCjkFontSelect, '', '', false);
       populateSelectWithFonts(ui.siteLatinFontSelect, '', '', true);
+      syncSiteCloudWeightSelect(state.draftCloudWeight);
       updateSiteFontFormVisibility();
     }
 
@@ -532,7 +596,7 @@
       var basicOpt = ui.siteBasicFontSelect && ui.siteBasicFontSelect.selectedOptions && ui.siteBasicFontSelect.selectedOptions[0];
       var cjkOpt = ui.siteCjkFontSelect && ui.siteCjkFontSelect.selectedOptions && ui.siteCjkFontSelect.selectedOptions[0];
       var latinOpt = ui.siteLatinFontSelect && ui.siteLatinFontSelect.selectedOptions && ui.siteLatinFontSelect.selectedOptions[0];
-      var rule = shared.createSiteFontRule({
+      var baseRule = {
         fontMode: mode,
         selectedFont: ui.siteBasicFontSelect ? (ui.siteBasicFontSelect.value || '') : '',
         selectedFontId: basicOpt && basicOpt.dataset ? (basicOpt.dataset.fontId || '') : '',
@@ -542,7 +606,15 @@
           latinFont: ui.siteLatinFontSelect ? (ui.siteLatinFontSelect.value || '') : '',
           latinFontId: latinOpt && latinOpt.dataset ? (latinOpt.dataset.fontId || '') : '',
         },
-      });
+      };
+      var activeCloud = shared.resolveActiveCloudFontFromConfig(baseRule);
+      var rawWeight = ui.siteCloudWeightSelect && !ui.siteCloudWeightSelect.disabled
+        ? ui.siteCloudWeightSelect.value
+        : shared.CLOUD_FONT_WEIGHT_AUTO;
+      baseRule.cloudFontWeight = activeCloud
+        ? shared.resolveEffectiveCloudFontWeight(activeCloud, rawWeight)
+        : shared.CLOUD_FONT_WEIGHT_AUTO;
+      var rule = shared.createSiteFontRule(baseRule);
       if (shared.isSiteFontRuleEmpty(rule)) {
         setStatus(msgs.errEmptyFont, 'error');
         return;
@@ -616,7 +688,26 @@
       if (ui.clearAllExcludedBtn) ui.clearAllExcludedBtn.addEventListener('click', clearAllExcludedHosts);
       if (ui.excludedSearchInput) ui.excludedSearchInput.addEventListener('input', renderExcludedList);
       if (ui.siteFontSearchInput) ui.siteFontSearchInput.addEventListener('input', renderSiteFontList);
-      if (ui.siteFontModeSelect) ui.siteFontModeSelect.addEventListener('change', updateSiteFontFormVisibility);
+      if (ui.siteFontModeSelect) {
+        ui.siteFontModeSelect.addEventListener('change', function () {
+          updateSiteFontFormVisibility();
+          syncSiteCloudWeightSelect();
+        });
+      }
+      [ui.siteBasicFontSelect, ui.siteLatinFontSelect].forEach(function (sel) {
+        if (sel) {
+          sel.addEventListener('change', function () {
+            syncSiteCloudWeightSelect();
+          });
+        }
+      });
+      if (ui.siteCloudWeightSelect) {
+        ui.siteCloudWeightSelect.addEventListener('change', function () {
+          if (!ui.siteCloudWeightSelect.disabled) {
+            state.draftCloudWeight = shared.normalizeCloudFontWeight(ui.siteCloudWeightSelect.value);
+          }
+        });
+      }
       if (ui.saveSiteFontBtn) ui.saveSiteFontBtn.addEventListener('click', saveSiteFontRule);
       if (ui.cancelEditSiteFontBtn) ui.cancelEditSiteFontBtn.addEventListener('click', resetSiteFontForm);
 

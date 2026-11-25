@@ -612,12 +612,12 @@ test('Popup exposes curated Cloud Google Fonts, injects preview stylesheet on de
 
 test("Popup opens What's New once in a background tab after update, stays silent in incognito, and opens in foreground on button click", async () => {
   const h = createPopupHarness({
-    localStorage: { whatsNewPendingVersion: '2.2.0' },
+    localStorage: { whatsNewPendingVersion: '2.2.1' },
   });
   await h.controller.ready;
 
   assert.equal(h.localStore.whatsNewPendingVersion, undefined);
-  assert.equal(h.localStore.whatsNewSeenVersion, '2.2.0');
+  assert.equal(h.localStore.whatsNewSeenVersion, '2.2.1');
   assert.deepEqual(h.calls.tabsCreate[0], {
     url: 'chrome-extension://popup-test-id/whats-new.html',
     active: false,
@@ -632,11 +632,11 @@ test("Popup opens What's New once in a background tab after update, stays silent
 
   // Even without whatsNewPendingVersion, an existing install whose whatsNewSeenVersion !== manifest.version triggers once.
   const upgradeFallbackH = createPopupHarness({
-    manifestVersion: '2.2.0',
+    manifestVersion: '2.2.1',
     localStorage: {},
   });
   await upgradeFallbackH.controller.ready;
-  assert.equal(upgradeFallbackH.localStore.whatsNewSeenVersion, '2.2.0');
+  assert.equal(upgradeFallbackH.localStore.whatsNewSeenVersion, '2.2.1');
   assert.deepEqual(upgradeFallbackH.calls.tabsCreate[0], {
     url: 'chrome-extension://popup-test-id/whats-new.html',
     active: false,
@@ -644,8 +644,8 @@ test("Popup opens What's New once in a background tab after update, stays silent
 
   // Subsequent popup open with whatsNewSeenVersion === manifest.version does not re-open.
   const secondOpenH = createPopupHarness({
-    manifestVersion: '2.2.0',
-    localStorage: { whatsNewSeenVersion: '2.2.0' },
+    manifestVersion: '2.2.1',
+    localStorage: { whatsNewSeenVersion: '2.2.1' },
   });
   await secondOpenH.controller.ready;
   assert.equal(secondOpenH.calls.tabsCreate.length, 0);
@@ -653,7 +653,7 @@ test("Popup opens What's New once in a background tab after update, stays silent
   // Incognito popup open must perform zero local storage writes and must not auto-open What's New.
   const incH = createPopupHarness({
     activeTab: { id: 91, url: 'https://example.com', incognito: true },
-    localStorage: { whatsNewPendingVersion: '2.2.0' },
+    localStorage: { whatsNewPendingVersion: '2.2.1' },
   });
   await incH.controller.ready;
   assert.equal(incH.calls.localSet.length, 0);

@@ -216,7 +216,7 @@ test('background service worker records whatsNewPendingVersion on extension upda
   const fakeChrome = {
     runtime: {
       getManifest() {
-        return { version: '2.2.0' };
+        return { version: '2.2.1' };
       },
       onMessage: { addListener() {}, removeListener() {} },
       onInstalled: {
@@ -242,13 +242,13 @@ test('background service worker records whatsNewPendingVersion on extension upda
 
   installedListeners[0]({ reason: 'install' });
   assert.equal(localStore.whatsNewPendingVersion, undefined);
-  assert.equal(localStore.whatsNewSeenVersion, '2.2.0');
+  assert.equal(localStore.whatsNewSeenVersion, '2.2.1');
 
-  installedListeners[0]({ reason: 'update', previousVersion: '2.2.0' });
+  installedListeners[0]({ reason: 'update', previousVersion: '2.2.1' });
   assert.equal(localStore.whatsNewPendingVersion, undefined);
 
   installedListeners[0]({ reason: 'update', previousVersion: '2.1.2' });
-  assert.equal(localStore.whatsNewPendingVersion, '2.2.0');
+  assert.equal(localStore.whatsNewPendingVersion, '2.2.1');
 
   ctrl.destroy();
   assert.equal(installedListeners.length, 0);

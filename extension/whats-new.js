@@ -38,7 +38,7 @@
     var preferredLocale = getBrowserLocale(win && win.navigator, chromeApi);
 
     function applyVersionBadge() {
-      var version = '2.2.0';
+      var version = '2.2.1';
       if (chromeApi && chromeApi.runtime && typeof chromeApi.runtime.getManifest === 'function') {
         try {
           var manifest = chromeApi.runtime.getManifest();

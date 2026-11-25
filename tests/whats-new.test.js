@@ -87,7 +87,7 @@ function createWhatsNewHarness(options = {}) {
   const chrome = {
     i18n: { getUILanguage: () => options.uiLanguage || 'zh-TW' },
     runtime: {
-      getManifest: () => ({ version: '2.2.0' }),
+      getManifest: () => ({ version: '2.2.1' }),
       openOptionsPage: () => { calls.openOptionsPage += 1; },
       getURL: (rel) => 'chrome-extension://test-id/' + rel,
     },
@@ -130,7 +130,7 @@ test("whats-new.js supports bilingual view switching, preferred locale ordering,
   });
   await h.controller.ready;
 
-  assert.equal(h.byId.get('versionBadge').textContent, 'v2.2.0');
+  assert.equal(h.byId.get('versionBadge').textContent, 'v2.2.1');
   assert.equal(h.byId.get('openWikiBtn').getAttribute('href'), shared.WIKI_GUIDE_URL);
   assert.equal(h.byId.get('openFeedbackBtn').getAttribute('href'), shared.FEEDBACK_URL);
 

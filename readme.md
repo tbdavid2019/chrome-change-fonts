@@ -17,9 +17,9 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`2.2.0`
+目前版本：`2.2.1`
 
-`2.2.0` 更新項目：
+`2.2.1` 更新項目：
 
 - **新增 10 款 Google Fonts 雲端精選字體（按需載入，無須新增擴充套件權限）**：
   - 於「單一字體」與「CJK / 英數分開 → 非 CJK」選單及「網站規則管理頁」新增 `雲端字體 (Google Fonts・按需載入)` 分組，提供 `JetBrains Mono`、`Fira Code`、`Google Sans Code`、`Geist Mono`、`Source Code Pro`、`Intel One Mono`、`Lilex`、`Atkinson Hyperlegible Mono`、`Atkinson Hyperlegible` 與 `Anonymous Pro`。

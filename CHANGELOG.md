@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.1 - 2026-11-25
+
+- **Bumped extension version to `2.2.1`** and added `whatsNewSeenVersion !== manifest.version` fallback detection in `extension/popup.js` alongside `reason === 'install'` baseline marking in `extension/background.js`, ensuring existing users and unpacked extension reloads reliably open `whats-new.html` once in a background tab on first post-update popup click.
+
 ## 2.2.0 - 2026-11-25
 
 - **Curated Cloud Google Fonts with On-Demand CDN Loading (`extension/shared.js`, `extension/content.js`, `extension/popup.js`, `extension/options.js`)**:

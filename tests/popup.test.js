@@ -160,6 +160,7 @@ function createPopupHarness(options = {}) {
       },
       getManifest() {
         return {
+          ...(options.manifestVersion ? { version: options.manifestVersion } : {}),
           content_scripts: [{ js: ['shared.js', 'content.js'] }],
         };
       },
@@ -628,6 +629,26 @@ test("Popup opens What's New once in a background tab after update, stays silent
     url: 'chrome-extension://popup-test-id/whats-new.html',
     active: true,
   });
+
+  // Even without whatsNewPendingVersion, an existing install whose whatsNewSeenVersion !== manifest.version triggers once.
+  const upgradeFallbackH = createPopupHarness({
+    manifestVersion: '2.2.0',
+    localStorage: {},
+  });
+  await upgradeFallbackH.controller.ready;
+  assert.equal(upgradeFallbackH.localStore.whatsNewSeenVersion, '2.2.0');
+  assert.deepEqual(upgradeFallbackH.calls.tabsCreate[0], {
+    url: 'chrome-extension://popup-test-id/whats-new.html',
+    active: false,
+  });
+
+  // Subsequent popup open with whatsNewSeenVersion === manifest.version does not re-open.
+  const secondOpenH = createPopupHarness({
+    manifestVersion: '2.2.0',
+    localStorage: { whatsNewSeenVersion: '2.2.0' },
+  });
+  await secondOpenH.controller.ready;
+  assert.equal(secondOpenH.calls.tabsCreate.length, 0);
 
   // Incognito popup open must perform zero local storage writes and must not auto-open What's New.
   const incH = createPopupHarness({

@@ -242,6 +242,7 @@ test('background service worker records whatsNewPendingVersion on extension upda
 
   installedListeners[0]({ reason: 'install' });
   assert.equal(localStore.whatsNewPendingVersion, undefined);
+  assert.equal(localStore.whatsNewSeenVersion, '2.2.0');
 
   installedListeners[0]({ reason: 'update', previousVersion: '2.2.0' });
   assert.equal(localStore.whatsNewPendingVersion, undefined);

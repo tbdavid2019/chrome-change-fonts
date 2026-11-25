@@ -1137,28 +1137,36 @@
           typeof chromeApi.storage.local.get !== 'function' || !shared) {
         return;
       }
+      var currentVersion = '';
+      if (chromeApi.runtime && typeof chromeApi.runtime.getManifest === 'function') {
+        try {
+          var manifest = chromeApi.runtime.getManifest();
+          currentVersion = manifest && manifest.version ? String(manifest.version) : '';
+        } catch (_e) {}
+      }
       var pendingKey = shared.WHATS_NEW_PENDING_KEY || 'whatsNewPendingVersion';
       var seenKey = shared.WHATS_NEW_SEEN_KEY || 'whatsNewSeenVersion';
       chromeApi.storage.local.get([pendingKey, seenKey], function (localItems) {
         if (chromeApi.runtime && chromeApi.runtime.lastError) return;
         var pendingVer = localItems && typeof localItems[pendingKey] === 'string' ? localItems[pendingKey] : '';
-        if (!pendingVer) return;
         var seenVer = localItems && typeof localItems[seenKey] === 'string' ? localItems[seenKey] : '';
-        if (typeof chromeApi.storage.local.remove === 'function') {
+        var targetVer = pendingVer || currentVersion;
+        if (!targetVer) return;
+        var shouldOpen = (pendingVer && pendingVer !== seenVer) || (currentVersion && seenVer !== currentVersion);
+        if (!shouldOpen) return;
+        if (pendingVer && typeof chromeApi.storage.local.remove === 'function') {
           chromeApi.storage.local.remove(pendingKey, function () {
             if (chromeApi.runtime) void chromeApi.runtime.lastError;
           });
         }
         if (typeof chromeApi.storage.local.set === 'function') {
           var seenPayload = {};
-          seenPayload[seenKey] = pendingVer;
+          seenPayload[seenKey] = targetVer;
           chromeApi.storage.local.set(seenPayload, function () {
             if (chromeApi.runtime) void chromeApi.runtime.lastError;
           });
         }
-        if (seenVer !== pendingVer) {
-          openWhatsNewPage(false);
-        }
+        openWhatsNewPage(false);
       });
     }
 

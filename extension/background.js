@@ -10,6 +10,7 @@
   var GET_CACHED_FONT_SLOTS_ACTION = 'getCachedFontSlots';
   var SET_CACHED_FONT_SLOTS_ACTION = 'setCachedFontSlots';
   var WHATS_NEW_PENDING_KEY = 'whatsNewPendingVersion';
+  var WHATS_NEW_SEEN_KEY = 'whatsNewSeenVersion';
   var MAX_FONT_SLOTS_CACHE = 128;
 
   function updateTabOffBadge(actionApi, tabId, isSiteDisabled) {
@@ -150,7 +151,7 @@
     }
 
     function onInstalled(details) {
-      if (!details || details.reason !== 'update') return;
+      if (!details || (details.reason !== 'update' && details.reason !== 'install')) return;
       var currentVersion = '';
       if (typeof chromeApi.runtime.getManifest === 'function') {
         try {
@@ -159,19 +160,31 @@
         } catch (_e) {}
       }
       if (!currentVersion) return;
+      if (!chromeApi.storage || !chromeApi.storage.local || typeof chromeApi.storage.local.set !== 'function') {
+        return;
+      }
+      if (details.reason === 'install') {
+        try {
+          var installPayload = {};
+          installPayload[WHATS_NEW_SEEN_KEY] = currentVersion;
+          var pi = chromeApi.storage.local.set(installPayload, function () {
+            if (chromeApi.runtime) void chromeApi.runtime.lastError;
+          });
+          if (pi && typeof pi.catch === 'function') pi.catch(function () {});
+        } catch (_e) {}
+        return;
+      }
       if (details.previousVersion && String(details.previousVersion) === currentVersion) {
         return;
       }
-      if (chromeApi.storage && chromeApi.storage.local && typeof chromeApi.storage.local.set === 'function') {
-        try {
-          var payload = {};
-          payload[WHATS_NEW_PENDING_KEY] = currentVersion;
-          var p = chromeApi.storage.local.set(payload, function () {
-            if (chromeApi.runtime) void chromeApi.runtime.lastError;
-          });
-          if (p && typeof p.catch === 'function') p.catch(function () {});
-        } catch (_e) {}
-      }
+      try {
+        var payload = {};
+        payload[WHATS_NEW_PENDING_KEY] = currentVersion;
+        var p = chromeApi.storage.local.set(payload, function () {
+          if (chromeApi.runtime) void chromeApi.runtime.lastError;
+        });
+        if (p && typeof p.catch === 'function') p.catch(function () {});
+      } catch (_e) {}
     }
 
     chromeApi.runtime.onMessage.addListener(onMessage);

@@ -53,6 +53,11 @@ function createOptionsHarness(initialSync = {}) {
     }
     appendChild(child) {
       this.children.push(child);
+      if (this.tagName === 'SELECT' && child && child.tagName === 'OPTGROUP' && Array.isArray(child.children)) {
+        for (const opt of child.children) {
+          this.options.push(opt);
+        }
+      }
       return child;
     }
     add(opt, before) {
@@ -247,4 +252,16 @@ test('Options page lists, searches, adds, removes excluded sites and per-site fo
   basicSel.value = 'Arial';
   h.byId.get('saveSiteFontBtn').dispatch('click');
   assert.equal(h.syncStore['siteFont:localhost:3000'].selectedFont, 'Arial');
+
+  // Cloud Google Fonts appear in basic & Non-CJK selects (not CJK) and persist gf:* fontId.
+  const cjkSelect = h.byId.get('siteCjkFontSelect');
+  assert.equal(cjkSelect.options.some((o) => o.dataset && o.dataset.cloudFont === '1'), false);
+  const cloudOpt = basicSel.options.find((o) => o.dataset && o.dataset.fontId === 'gf:fira-code');
+  assert.ok(cloudOpt);
+  h.byId.get('siteFontHostInput').value = 'docs.example.org';
+  basicSel.selectedIndex = basicSel.options.indexOf(cloudOpt);
+  basicSel.value = 'Fira Code';
+  h.byId.get('saveSiteFontBtn').dispatch('click');
+  assert.equal(h.syncStore['siteFont:docs.example.org'].selectedFont, 'Fira Code');
+  assert.equal(h.syncStore['siteFont:docs.example.org'].selectedFontId, 'gf:fira-code');
 });

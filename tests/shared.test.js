@@ -386,3 +386,28 @@ test('probeLocalFontSlots reads/populates runtime background cache and falls bac
     globalThis.FontFace = originalFontFace;
   }
 });
+
+test('CLOUD_GOOGLE_FONTS catalog and getFontStack handle cloud fonts and explicit system fontIds cleanly', () => {
+  assert.equal(shared.CLOUD_GOOGLE_FONTS.length, 10);
+  const fira = shared.getCloudGoogleFont('Fira Code');
+  assert.ok(fira);
+  assert.equal(fira.id, 'gf:fira-code');
+  assert.match(fira.googleFontsUrl, /^https:\/\/fonts\.googleapis\.com\/css2\?family=Fira\+Code/);
+
+  // Explicit system fontId must NOT trigger cloud font resolution even if name matches.
+  assert.equal(shared.resolveCloudGoogleFont('JetBrains Mono', 'JetBrainsMono-Regular'), null);
+  // Explicit gf:* fontId or legacy empty fontId resolves cloud metadata.
+  assert.equal(shared.resolveCloudGoogleFont('JetBrains Mono', 'gf:jetbrains-mono').id, 'gf:jetbrains-mono');
+  assert.equal(shared.resolveCloudGoogleFont('Fira Code', '').id, 'gf:fira-code');
+
+  // Advanced split mode with local CJK + cloud Google Font Latin emits direct Google Font family after CJK.
+  const splitStack = shared.getFontStack(
+    shared.FONT_MODE_ADVANCED,
+    '',
+    { cjkFont: 'PingFang TC', cjkFontId: 'PingFangTC-Regular', latinFont: 'Fira Code', latinFontId: 'gf:fira-code' },
+    shared.CJK_FONT_FAMILY,
+    shared.LATIN_FONT_FAMILY
+  );
+  assert.match(splitStack, /^"FontChangerCjk", "Fira Code", /);
+  assert.doesNotMatch(splitStack, /FontChangerLatin/);
+});

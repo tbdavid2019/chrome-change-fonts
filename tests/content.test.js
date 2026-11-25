@@ -1173,3 +1173,62 @@ test('deactivate -> activate restores ShadowRoot observers/icons, dynamic <link>
   env.controller().destroy();
   assert.equal(removedLoadCount, 1);
 });
+
+test('On-demand Google Fonts CDN link injection, rescan isolation, split mode stack, and cleanup', async () => {
+  const env = loadContentEnvironment({
+    syncStorage: {
+      isEnabled: true,
+      fontMode: 'basic',
+      selectedFont: 'Fira Code',
+      selectedFontId: 'gf:fira-code',
+    },
+  });
+  const doc = env.dom.document;
+
+  const cdnLinks = doc.querySelectorAll('[' + shared.CLOUD_GOOGLE_FONT_ATTR + ']');
+  assert.equal(cdnLinks.length, 1);
+  assert.equal(cdnLinks[0].getAttribute(shared.CLOUD_GOOGLE_FONT_ATTR), 'gf:fira-code');
+  assert.equal(cdnLinks[0].getAttribute('referrerpolicy'), 'no-referrer');
+  assert.match(cdnLinks[0].href, /fonts\.googleapis\.com\/css2\?family=Fira\+Code/);
+
+  // Cloud font loadingdone events must NOT trigger redundant full-DOM rescans.
+  const firaFace = { family: '"Fira Code"', status: 'loaded', unicodeRange: 'U+0-FF' };
+  doc.fontFaces.push(firaFace);
+  doc.triggerLoadingDone({ fontfaces: [firaFace] });
+
+  // Switch to Advanced split mode (Local CJK + Cloud Google Font Latin).
+  env.chrome.storage.sync.set({
+    fontMode: 'advanced',
+    advancedFontConfig: {
+      cjkFont: 'PingFang TC',
+      cjkFontId: 'PingFangTC-Regular',
+      latinFont: 'Geist Mono',
+      latinFontId: 'gf:geist-mono',
+    },
+  });
+  const updatedLinks = doc.querySelectorAll('[' + shared.CLOUD_GOOGLE_FONT_ATTR + ']');
+  assert.equal(updatedLinks.length, 1);
+  assert.equal(updatedLinks[0].getAttribute(shared.CLOUD_GOOGLE_FONT_ATTR), 'gf:geist-mono');
+
+  const css = env.controller().buildCss(false);
+  assert.match(css, /FontChangerCjk/);
+  assert.doesNotMatch(css, /FontChangerLatin/);
+  assert.match(css, /"FontChangerCjk", "Geist Mono"/);
+
+  // Explicit system font (non-gf fontId) removes cloud CDN link cleanly (zero external requests).
+  env.chrome.storage.sync.set({
+    fontMode: 'basic',
+    selectedFont: 'JetBrains Mono',
+    selectedFontId: 'JetBrainsMono-Regular',
+  });
+  assert.equal(doc.querySelectorAll('[' + shared.CLOUD_GOOGLE_FONT_ATTR + ']').length, 0);
+
+  // Re-enable cloud font then disable globally -> Dormant cleanup removes link.
+  env.chrome.storage.sync.set({
+    selectedFont: 'Lilex',
+    selectedFontId: 'gf:lilex',
+  });
+  assert.equal(doc.querySelectorAll('[' + shared.CLOUD_GOOGLE_FONT_ATTR + ']').length, 1);
+  env.chrome.storage.sync.set({ isEnabled: false });
+  assert.equal(doc.querySelectorAll('[' + shared.CLOUD_GOOGLE_FONT_ATTR + ']').length, 0);
+});

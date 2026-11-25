@@ -104,6 +104,7 @@
     active: false,
     storageReady: false,
     selectedFont: '',
+    selectedFontId: '',
     isEnabled: false,
     fontMode: SHARED.FONT_MODE_BASIC,
     advancedFontConfig: SHARED.createAdvancedFontConfig(),
@@ -194,10 +195,21 @@
       {
         fontMode: state.fontMode,
         selectedFont: state.selectedFont,
+        selectedFontId: state.selectedFontId,
         advancedFontConfig: state.advancedFontConfig,
       },
       resolveActiveSiteFontRule()
     );
+  }
+
+  function getActiveCloudGoogleFont() {
+    if (!isEffectivelyEnabled()) return null;
+    var effective = getEffectiveFontSettings();
+    if (effective.fontMode === SHARED.FONT_MODE_ADVANCED) {
+      var cfg = effective.advancedFontConfig;
+      return SHARED.resolveCloudGoogleFont(cfg.latinFont, cfg.latinFontId);
+    }
+    return SHARED.resolveCloudGoogleFont(effective.selectedFont, effective.selectedFontId);
   }
 
   function isPrimaryFontSetEmpty() {
@@ -239,11 +251,18 @@
     }
     var effective = getEffectiveFontSettings();
     var cfg = effective.advancedFontConfig;
+    var cloudFont = getActiveCloudGoogleFont();
+    var isCloudLatin = effective.fontMode === SHARED.FONT_MODE_ADVANCED &&
+      Boolean(SHARED.resolveCloudGoogleFont(cfg.latinFont, cfg.latinFontId));
     var cjkSlots = cfg.cjkFont || cfg.cjkFontId ? getSlotSnapshot(cfg.cjkFont, cfg.cjkFontId) : null;
-    var latinSlots = cfg.latinFont || cfg.latinFontId ? getSlotSnapshot(cfg.latinFont, cfg.latinFontId) : null;
+    var latinSlots = !isCloudLatin && (cfg.latinFont || cfg.latinFontId)
+      ? getSlotSnapshot(cfg.latinFont, cfg.latinFontId)
+      : null;
     return JSON.stringify({
       mode: effective.fontMode,
       selectedFont: effective.selectedFont,
+      selectedFontId: effective.selectedFontId,
+      cloudFontId: cloudFont ? cloudFont.id : '',
       cjkFont: cfg.cjkFont,
       cjkFontId: cfg.cjkFontId,
       latinFont: cfg.latinFont,
@@ -276,7 +295,7 @@
         )
       );
     }
-    if (cfg.latinFont || cfg.latinFontId) {
+    if ((cfg.latinFont || cfg.latinFontId) && !SHARED.resolveCloudGoogleFont(cfg.latinFont, cfg.latinFontId)) {
       parts.push(
         SHARED.buildRestrictedFontFaceSetCss(
           SHARED.LATIN_FONT_FAMILY,
@@ -618,9 +637,59 @@
     }
   }
 
+  function removeCloudFontLinks(root) {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    try {
+      var links = root.querySelectorAll('[' + SHARED.CLOUD_GOOGLE_FONT_ATTR + ']');
+      for (var i = 0; i < links.length; i++) {
+        if (links[i] && links[i].parentNode) {
+          links[i].parentNode.removeChild(links[i]);
+        }
+      }
+    } catch (_e) {
+      // Ignore querySelectorAll limitations on lightweight test doubles.
+    }
+  }
+
+  function syncCloudFontLink(targetDoc) {
+    if (!targetDoc || typeof targetDoc.createElement !== 'function') return;
+    var neededCloud = getActiveCloudGoogleFont();
+    var neededId = neededCloud ? neededCloud.id : '';
+    var alreadyPresent = false;
+    if (typeof targetDoc.querySelectorAll === 'function') {
+      try {
+        var existing = targetDoc.querySelectorAll('[' + SHARED.CLOUD_GOOGLE_FONT_ATTR + ']');
+        for (var i = 0; i < existing.length; i++) {
+          var node = existing[i];
+          var attrVal = typeof node.getAttribute === 'function' ? node.getAttribute(SHARED.CLOUD_GOOGLE_FONT_ATTR) : '';
+          if (neededId && attrVal === neededId && !alreadyPresent) {
+            alreadyPresent = true;
+          } else if (node && node.parentNode) {
+            node.parentNode.removeChild(node);
+          }
+        }
+      } catch (_e) {
+        // Ignore stub limitations.
+      }
+    }
+    if (!neededCloud || alreadyPresent) return;
+    var container = targetDoc.head || targetDoc.documentElement;
+    if (!container || typeof container.appendChild !== 'function') return;
+    var link = targetDoc.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = neededCloud.googleFontsUrl;
+    if (typeof link.setAttribute === 'function') {
+      link.setAttribute(SHARED.CLOUD_GOOGLE_FONT_ATTR, neededCloud.id);
+      link.setAttribute('referrerpolicy', 'no-referrer');
+    }
+    link.crossOrigin = 'anonymous';
+    container.appendChild(link);
+  }
+
   function cleanRootCompletely(root) {
     if (!root) return;
     detachSheetFromRoot(root);
+    removeCloudFontLinks(root);
     stripFontChangerAttrsFromRoot(root);
   }
 
@@ -641,10 +710,12 @@
     var shadowCss = buildRulesCss(true);
 
     if (typeof document !== 'undefined' && document) {
+      syncCloudFontLink(document);
       attachSheetToRoot(document, docCss, fontFaceCss);
     }
     trackedPipDocuments.forEach(function (pipDoc) {
       if (pipDoc) {
+        syncCloudFontLink(pipDoc);
         attachSheetToRoot(pipDoc, docCss, fontFaceCss);
       }
     });
@@ -1590,6 +1661,7 @@
 
   function watchSingleStylesheetLink(link) {
     if (!link || link.nodeType !== 1) return;
+    if (typeof link.getAttribute === 'function' && link.getAttribute(SHARED.CLOUD_GOOGLE_FONT_ATTR)) return;
     var tag = link.tagName ? String(link.tagName).toUpperCase() : '';
     if (tag !== 'LINK') return;
     var relVal = link.rel || (typeof link.getAttribute === 'function' ? (link.getAttribute('rel') || '') : '');
@@ -2201,6 +2273,7 @@
   function activatePipDocument(pipDoc, pipWin) {
     if (!pipDoc || !isEffectivelyEnabled()) return;
     copyFontResourcesToPip(document, pipDoc);
+    syncCloudFontLink(pipDoc);
     if (!hasAttachedRulesSheet(pipDoc)) {
       var prevFontCount = indexedFontsList.length;
       scanRootTree(pipDoc, true);
@@ -2292,7 +2365,8 @@
         var face = loadedFaces[i];
         if (!face || !face.family) continue;
         var clean = face.family.replace(/^["']|["']$/g, '').trim().toLowerCase();
-        if (!clean || clean === '__fc_probe' || clean === cjkName || clean === latinName) {
+        if (!clean || clean === '__fc_probe' || clean === cjkName || clean === latinName ||
+            SHARED.isCloudGoogleFont(clean)) {
           continue;
         }
         if (!seenLoadedFaces.has(face)) {
@@ -2399,7 +2473,7 @@
     if (cfg.cjkFont || cfg.cjkFontId) {
       tasks.push(SHARED.probeLocalFontSlots(cfg.cjkFont, cfg.cjkFontId, localFontSlotsCache, probeOpts));
     }
-    if (cfg.latinFont || cfg.latinFontId) {
+    if ((cfg.latinFont || cfg.latinFontId) && !SHARED.resolveCloudGoogleFont(cfg.latinFont, cfg.latinFontId)) {
       tasks.push(SHARED.probeLocalFontSlots(cfg.latinFont, cfg.latinFontId, localFontSlotsCache, probeOpts));
     }
     if (!tasks.length) return;
@@ -2664,6 +2738,7 @@
   function buildRelevantSyncKeys() {
     var keys = [
       SHARED.STORAGE_KEYS.SELECTED_FONT,
+      SHARED.STORAGE_KEYS.SELECTED_FONT_ID,
       SHARED.STORAGE_KEYS.IS_ENABLED,
       SHARED.STORAGE_KEYS.FONT_MODE,
       SHARED.STORAGE_KEYS.ADVANCED_FONT_CONFIG,
@@ -2679,6 +2754,9 @@
     var src = items || {};
     state.selectedFont = typeof src[SHARED.STORAGE_KEYS.SELECTED_FONT] === 'string'
       ? src[SHARED.STORAGE_KEYS.SELECTED_FONT]
+      : '';
+    state.selectedFontId = typeof src[SHARED.STORAGE_KEYS.SELECTED_FONT_ID] === 'string'
+      ? src[SHARED.STORAGE_KEYS.SELECTED_FONT_ID]
       : '';
     state.isEnabled = Boolean(src[SHARED.STORAGE_KEYS.IS_ENABLED]);
     state.fontMode = SHARED.normalizeFontMode(src[SHARED.STORAGE_KEYS.FONT_MODE]);
@@ -2704,6 +2782,7 @@
     var relevant = false;
     var globalKeys = [
       SHARED.STORAGE_KEYS.SELECTED_FONT,
+      SHARED.STORAGE_KEYS.SELECTED_FONT_ID,
       SHARED.STORAGE_KEYS.IS_ENABLED,
       SHARED.STORAGE_KEYS.FONT_MODE,
       SHARED.STORAGE_KEYS.ADVANCED_FONT_CONFIG,
@@ -2736,6 +2815,10 @@
     if (changes[SHARED.STORAGE_KEYS.SELECTED_FONT]) {
       var nextFont = changes[SHARED.STORAGE_KEYS.SELECTED_FONT].newValue;
       state.selectedFont = typeof nextFont === 'string' ? nextFont : '';
+    }
+    if (changes[SHARED.STORAGE_KEYS.SELECTED_FONT_ID]) {
+      var nextFontId = changes[SHARED.STORAGE_KEYS.SELECTED_FONT_ID].newValue;
+      state.selectedFontId = typeof nextFontId === 'string' ? nextFontId : '';
     }
     if (changes[SHARED.STORAGE_KEYS.IS_ENABLED]) {
       state.isEnabled = Boolean(changes[SHARED.STORAGE_KEYS.IS_ENABLED].newValue);
@@ -2918,6 +3001,7 @@
         isEnabled: state.isEnabled,
         fontMode: effective.fontMode,
         selectedFont: effective.selectedFont,
+        selectedFontId: effective.selectedFontId || '',
         advancedFontConfig: SHARED.createAdvancedFontConfig(effective.advancedFontConfig),
         activeSiteFontRule: resolveActiveSiteFontRule(),
         isSiteDisabled: computeEffectiveSiteDisabled(),

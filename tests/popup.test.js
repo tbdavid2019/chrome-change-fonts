@@ -57,10 +57,13 @@ function createPopupHarness(options = {}) {
     }
     set textContent(v) {
       this._textContent = String(v === undefined || v === null ? '' : v);
-      if (this.tagName === 'SELECT' && this._textContent === '') {
-        this.options = [];
-        this.selectedIndex = -1;
-        this.value = '';
+      if (this._textContent === '') {
+        this.children = [];
+        if (this.tagName === 'SELECT') {
+          this.options = [];
+          this.selectedIndex = -1;
+          this.value = '';
+        }
       }
     }
     get selectedOptions() {
@@ -77,6 +80,11 @@ function createPopupHarness(options = {}) {
     }
     appendChild(child) {
       this.children.push(child);
+      if (this.tagName === 'SELECT' && child && child.tagName === 'OPTGROUP' && Array.isArray(child.children)) {
+        for (const opt of child.children) {
+          this.options.push(opt);
+        }
+      }
       return child;
     }
     add(option, before) {
@@ -529,4 +537,38 @@ test('Popup preserves saved site rule while switching to unconfigured mode draft
   assert.equal(clearMsg.host, 'example.com');
   assert.equal(clearMsg.rule, null);
   assert.equal(clearMsg.clearToInherit, false);
+});
+
+test('Popup exposes curated Cloud Google Fonts, injects preview stylesheet on demand, and avoids unavailable warning', async () => {
+  const h = createPopupHarness({
+    syncStorage: {
+      uiLanguage: 'zh-Hant',
+      isEnabled: true,
+      selectedFont: 'Fira Code',
+      selectedFontId: 'gf:fira-code',
+    },
+    fontList: [{ displayName: 'Arial', fontId: 'Arial' }],
+  });
+  await h.controller.ready;
+
+  const fontSelect = h.byId.get('fontSelect');
+  const cjkSelect = h.byId.get('advancedCjkSelect');
+  const latinSelect = h.byId.get('advancedLatinSelect');
+
+  assert.equal(fontSelect.value, 'Fira Code');
+  assert.equal(fontSelect.selectedOptions[0].dataset.fontId, 'gf:fira-code');
+  assert.equal(fontSelect.selectedOptions[0].dataset.unavailable, undefined);
+  assert.ok(latinSelect.options.some((o) => o.dataset.fontId === 'gf:geist-mono'));
+  assert.equal(cjkSelect.options.some((o) => o.dataset.cloudFont === '1'), false);
+
+  const headLinks = h.byId.get('fontSelect') ? h.controller.getState() : null;
+  assert.equal(headLinks.selectedFontId, 'gf:fira-code');
+
+  // Switch to system Arial -> persists empty/Arial fontId and removes cloud preview link.
+  const arialOpt = fontSelect.options.find((o) => o.value === 'Arial');
+  fontSelect.selectedIndex = fontSelect.options.indexOf(arialOpt);
+  fontSelect.value = 'Arial';
+  fontSelect.dispatch('change');
+  assert.equal(h.syncStore.selectedFont, 'Arial');
+  assert.equal(h.syncStore.selectedFontId, 'Arial');
 });

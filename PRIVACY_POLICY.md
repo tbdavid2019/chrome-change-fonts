@@ -1,6 +1,6 @@
 # Privacy Policy / 隱私政策
 
-Last updated: 2026-11-22
+Last updated: 2026-11-25
 
 ## 繁體中文
 
@@ -49,6 +49,8 @@ Last updated: 2026-11-22
 本擴充套件不會將您的資料傳送到開發者伺服器，也不會出售、出租或分享您的資料給第三方。
 
 本擴充套件不使用分析工具、不使用廣告追蹤、不建立使用者行為檔案。
+
+**雲端字體（Google Fonts）按需載入說明**：本擴充套件預設使用您裝置本機的系統字體，在此情況下不會產生任何外部網路請求。僅當您主動在字體清單中選擇「雲端字體（Google Fonts）」選項時，瀏覽器才會依需求向 Google Fonts CDN（`fonts.googleapis.com` 與 `fonts.gstatic.com`）請求該字體的 CSS 與字型檔案（並強制設定 `referrerpolicy="no-referrer"`，避免傳送您目前瀏覽的網頁網址）。Google 伺服器可能會依標準 HTTP 請求處理您的連線 IP 與瀏覽器標頭。
 
 ### 5. 網頁內容存取說明
 
@@ -117,6 +119,8 @@ The extension uses this information only to:
 This extension does not send your data to developer-operated servers and does not sell, rent, or share your data with third parties.
 
 This extension does not use analytics, advertising trackers, or profiling tools.
+
+**Optional On-Demand Cloud Fonts (Google Fonts)**: By default, and whenever you choose a local system font, this extension makes zero external network requests. Only when you explicitly select a font from the "Cloud Fonts (Google Fonts)" section will your browser load the corresponding stylesheet and font files on demand from Google Fonts CDN (`fonts.googleapis.com` and `fonts.gstatic.com`) with `referrerpolicy="no-referrer"` (so the URL of the page you are visiting is not sent as a Referer). Standard HTTP request metadata such as your IP address and User-Agent is handled by Google Fonts when loading those cloud font assets.
 
 ### 5. Webpage Access
 

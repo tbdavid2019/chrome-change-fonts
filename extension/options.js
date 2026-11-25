@@ -27,6 +27,8 @@
       siteCjkFontLabel: 'CJK（中日韓）',
       siteLatinFontLabel: '非 CJK（英數與標點）',
       defaultFontOption: '系統預設字體',
+      systemFontsGroup: '本機字體',
+      cloudFontsGroup: '雲端字體 (Google Fonts・按需載入)',
       unavailableFontLabel: '{font}（本機未安裝）',
       saveSiteFontBtn: '儲存網站字體',
       cancelEditBtn: '取消編輯',
@@ -66,6 +68,8 @@
       siteCjkFontLabel: 'CJK (Chinese / Japanese / Korean)',
       siteLatinFontLabel: 'Non-CJK (Latin / numbers / punctuation)',
       defaultFontOption: 'System default font',
+      systemFontsGroup: 'System Fonts',
+      cloudFontsGroup: 'Cloud Fonts (Google Fonts · On-Demand)',
       unavailableFontLabel: '{font} (Not installed on this device)',
       saveSiteFontBtn: 'Save site font',
       cancelEditBtn: 'Cancel',
@@ -188,54 +192,22 @@
       }
     }
 
-    function populateSelectWithFonts(selectEl, storedName, storedFontId) {
+    function populateSelectWithFonts(selectEl, storedName, storedFontId, includeCloudFonts) {
       if (!selectEl) return;
       var msgs = getMsgs();
-      var sortLoc = state.locale === 'zh-Hant' ? 'zh-Hant' : 'en';
-      selectEl.textContent = '';
-
-      var defaultOpt = doc.createElement('option');
-      defaultOpt.value = '';
-      defaultOpt.textContent = msgs.defaultFontOption;
-      selectEl.add(defaultOpt);
-
-      var sorted = state.systemFonts.slice().sort(function (a, b) {
-        return String(a.displayName || '').localeCompare(String(b.displayName || ''), sortLoc);
+      shared.populateFontSelect({
+        doc: doc,
+        selectEl: selectEl,
+        systemFonts: state.systemFonts,
+        locale: state.locale,
+        defaultLabel: msgs.defaultFontOption,
+        systemGroupLabel: msgs.systemFontsGroup,
+        cloudGroupLabel: msgs.cloudFontsGroup,
+        unavailableLabel: msgs.unavailableFontLabel,
+        storedName: storedName,
+        storedFontId: storedFontId,
+        includeCloudFonts: Boolean(includeCloudFonts),
       });
-
-      for (var i = 0; i < sorted.length; i++) {
-        var font = sorted[i];
-        var opt = doc.createElement('option');
-        opt.value = font.displayName;
-        opt.textContent = font.displayName;
-        opt.dataset.fontId = font.fontId;
-        selectEl.add(opt);
-      }
-
-      if (!storedName && !storedFontId) {
-        selectEl.selectedIndex = 0;
-        selectEl.value = '';
-        return;
-      }
-
-      var options = Array.from(selectEl.options);
-      var matchIdx = options.findIndex(function (o) {
-        return o.value === storedName || (storedFontId && o.dataset.fontId === storedFontId);
-      });
-      if (matchIdx !== -1) {
-        selectEl.selectedIndex = matchIdx;
-        selectEl.value = options[matchIdx].value;
-        return;
-      }
-
-      var labelName = storedName || storedFontId;
-      var missingOpt = doc.createElement('option');
-      missingOpt.value = labelName;
-      missingOpt.dataset.fontId = storedFontId || labelName;
-      missingOpt.textContent = msgs.unavailableFontLabel.replace('{font}', labelName);
-      selectEl.add(missingOpt, selectEl.options.length > 1 ? selectEl.options[1] : null);
-      selectEl.selectedIndex = 1;
-      selectEl.value = labelName;
     }
 
     function updateSiteFontFormVisibility() {
@@ -407,16 +379,18 @@
       state.editingHost = host;
       if (ui.siteFontHostInput) ui.siteFontHostInput.value = host;
       if (ui.siteFontModeSelect) ui.siteFontModeSelect.value = rule.fontMode;
-      populateSelectWithFonts(ui.siteBasicFontSelect, rule.selectedFont, rule.selectedFont);
+      populateSelectWithFonts(ui.siteBasicFontSelect, rule.selectedFont, rule.selectedFontId || rule.selectedFont, true);
       populateSelectWithFonts(
         ui.siteCjkFontSelect,
         rule.advancedFontConfig.cjkFont || rule.advancedFontConfig.cjkFontId,
-        rule.advancedFontConfig.cjkFontId
+        rule.advancedFontConfig.cjkFontId,
+        false
       );
       populateSelectWithFonts(
         ui.siteLatinFontSelect,
         rule.advancedFontConfig.latinFont || rule.advancedFontConfig.latinFontId,
-        rule.advancedFontConfig.latinFontId
+        rule.advancedFontConfig.latinFontId,
+        true
       );
       updateSiteFontFormVisibility();
     }
@@ -425,9 +399,9 @@
       state.editingHost = null;
       if (ui.siteFontHostInput) ui.siteFontHostInput.value = '';
       if (ui.siteFontModeSelect) ui.siteFontModeSelect.value = shared.FONT_MODE_BASIC;
-      populateSelectWithFonts(ui.siteBasicFontSelect, '', '');
-      populateSelectWithFonts(ui.siteCjkFontSelect, '', '');
-      populateSelectWithFonts(ui.siteLatinFontSelect, '', '');
+      populateSelectWithFonts(ui.siteBasicFontSelect, '', '', true);
+      populateSelectWithFonts(ui.siteCjkFontSelect, '', '', false);
+      populateSelectWithFonts(ui.siteLatinFontSelect, '', '', true);
       updateSiteFontFormVisibility();
     }
 
@@ -555,11 +529,13 @@
         return;
       }
       var mode = ui.siteFontModeSelect ? shared.normalizeFontMode(ui.siteFontModeSelect.value) : shared.FONT_MODE_BASIC;
+      var basicOpt = ui.siteBasicFontSelect && ui.siteBasicFontSelect.selectedOptions && ui.siteBasicFontSelect.selectedOptions[0];
       var cjkOpt = ui.siteCjkFontSelect && ui.siteCjkFontSelect.selectedOptions && ui.siteCjkFontSelect.selectedOptions[0];
       var latinOpt = ui.siteLatinFontSelect && ui.siteLatinFontSelect.selectedOptions && ui.siteLatinFontSelect.selectedOptions[0];
       var rule = shared.createSiteFontRule({
         fontMode: mode,
         selectedFont: ui.siteBasicFontSelect ? (ui.siteBasicFontSelect.value || '') : '',
+        selectedFontId: basicOpt && basicOpt.dataset ? (basicOpt.dataset.fontId || '') : '',
         advancedFontConfig: {
           cjkFont: ui.siteCjkFontSelect ? (ui.siteCjkFontSelect.value || '') : '',
           cjkFontId: cjkOpt && cjkOpt.dataset ? (cjkOpt.dataset.fontId || '') : '',
@@ -624,9 +600,9 @@
           var basicSel = getSelectedFontPair(ui.siteBasicFontSelect);
           var cjkSel = getSelectedFontPair(ui.siteCjkFontSelect);
           var latSel = getSelectedFontPair(ui.siteLatinFontSelect);
-          populateSelectWithFonts(ui.siteBasicFontSelect, basicSel.name, basicSel.fontId);
-          populateSelectWithFonts(ui.siteCjkFontSelect, cjkSel.name, cjkSel.fontId);
-          populateSelectWithFonts(ui.siteLatinFontSelect, latSel.name, latSel.fontId);
+          populateSelectWithFonts(ui.siteBasicFontSelect, basicSel.name, basicSel.fontId, true);
+          populateSelectWithFonts(ui.siteCjkFontSelect, cjkSel.name, cjkSel.fontId, false);
+          populateSelectWithFonts(ui.siteLatinFontSelect, latSel.name, latSel.fontId, true);
           renderAll();
           var payload = {};
           payload[shared.STORAGE_KEYS.UI_LANGUAGE] = state.locale;
@@ -687,9 +663,9 @@
 
       return fontListPromise.then(function (fonts) {
         state.systemFonts = fonts;
-        populateSelectWithFonts(ui.siteBasicFontSelect, '', '');
-        populateSelectWithFonts(ui.siteCjkFontSelect, '', '');
-        populateSelectWithFonts(ui.siteLatinFontSelect, '', '');
+        populateSelectWithFonts(ui.siteBasicFontSelect, '', '', true);
+        populateSelectWithFonts(ui.siteCjkFontSelect, '', '', false);
+        populateSelectWithFonts(ui.siteLatinFontSelect, '', '', true);
         return reloadSyncData();
       });
     }

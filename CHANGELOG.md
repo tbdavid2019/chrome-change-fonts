@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0 - 2026-11-25
+
+- **Curated Cloud Google Fonts with On-Demand CDN Loading (`extension/shared.js`, `extension/content.js`, `extension/popup.js`, `extension/options.js`)**:
+  - Added 10 curated coding and high-legibility Google Fonts (`JetBrains Mono`, `Fira Code`, `Google Sans Code`, `Geist Mono`, `Source Code Pro`, `Intel One Mono`, `Lilex`, `Atkinson Hyperlegible Mono`, `Atkinson Hyperlegible`, and `Anonymous Pro`) under a dedicated `Cloud Fonts (Google Fonts · On-Demand)` `<optgroup>` in both `Single font` and `CJK / Latin split` (Non-CJK) selectors as well as the Site Rules Manager (`options.html`), requiring zero new manifest permissions.
+  - Added `selectedFontId` and `gf:*` resolution (`resolveCloudGoogleFont`) so explicit local system font selections (even sharing a family name like `JetBrains Mono`) never make external network requests, while cloud selections work across OSes without triggering `{font} (Not installed on this device)` warnings.
+  - Added `syncCloudFontLink` / `removeCloudFontLinks` in `content.js` (including Document PiP windows) and `syncPopupCloudFontLink` in `popup.js` to inject `<link rel="stylesheet" referrerpolicy="no-referrer">` strictly on demand and remove it cleanly on switch/disable/teardown; updated `watchSingleStylesheetLink` and `handleStylesheetOrFontLoaded` to ignore extension-injected cloud font links/faces and avoid redundant icon rescans.
+  - Updated `getFontStack` and `buildFontFaceCss` / `triggerLocalSlotProbesIfNeeded` so `CJK / Latin split` mode pairs `FontChangerCjk` directly with the selected Google Font family without local slot probing.
+  - Bumped extension version to `2.2.0` in `extension/manifest.json` and updated `PRIVACY_POLICY.md`, `readme.md`, and test suites (`tests/shared.test.js`, `tests/content.test.js`, `tests/popup.test.js`, `tests/options.test.js`, `tests/font-rendering.test.js`).
+
 ## 2.1.2 - 2026-11-23
 
 - **Fix Critical Chrome CPU & RAM Exhaustion Bugs (`extension/content.js`, `extension/shared.js`, `extension/background.js`)**:

@@ -7,11 +7,97 @@
 
   var STORAGE_KEYS = Object.freeze({
     SELECTED_FONT: 'selectedFont',
+    SELECTED_FONT_ID: 'selectedFontId',
     IS_ENABLED: 'isEnabled',
     FONT_MODE: 'fontMode',
     ADVANCED_FONT_CONFIG: 'advancedFontConfig',
     UI_LANGUAGE: 'uiLanguage',
   });
+
+  var CLOUD_GOOGLE_FONT_PREFIX = 'gf:';
+  var CLOUD_GOOGLE_FONT_ATTR = 'data-fc-cdn-font';
+
+  var CLOUD_GOOGLE_FONTS = Object.freeze([
+    Object.freeze({
+      id: 'gf:jetbrains-mono',
+      family: 'JetBrains Mono',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap',
+    }),
+    Object.freeze({
+      id: 'gf:fira-code',
+      family: 'Fira Code',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&display=swap',
+    }),
+    Object.freeze({
+      id: 'gf:google-sans-code',
+      family: 'Google Sans Code',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400;500;600;700&display=swap',
+    }),
+    Object.freeze({
+      id: 'gf:geist-mono',
+      family: 'Geist Mono',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&display=swap',
+    }),
+    Object.freeze({
+      id: 'gf:source-code-pro',
+      family: 'Source Code Pro',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600;700&display=swap',
+    }),
+    Object.freeze({
+      id: 'gf:intel-one-mono',
+      family: 'Intel One Mono',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Intel+One+Mono:wght@400;500;600;700&display=swap',
+    }),
+    Object.freeze({
+      id: 'gf:lilex',
+      family: 'Lilex',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Lilex:wght@400;500;600;700&display=swap',
+    }),
+    Object.freeze({
+      id: 'gf:atkinson-hyperlegible-mono',
+      family: 'Atkinson Hyperlegible Mono',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;500;600;700&display=swap',
+    }),
+    Object.freeze({
+      id: 'gf:atkinson-hyperlegible',
+      family: 'Atkinson Hyperlegible',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap',
+    }),
+    Object.freeze({
+      id: 'gf:anonymous-pro',
+      family: 'Anonymous Pro',
+      googleFontsUrl: 'https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&display=swap',
+    }),
+  ]);
+
+  var CLOUD_GOOGLE_FONT_BY_ID = Object.create(null);
+  var CLOUD_GOOGLE_FONT_BY_FAMILY = Object.create(null);
+  CLOUD_GOOGLE_FONTS.forEach(function (font) {
+    CLOUD_GOOGLE_FONT_BY_ID[font.id.toLowerCase()] = font;
+    CLOUD_GOOGLE_FONT_BY_FAMILY[font.family.toLowerCase()] = font;
+  });
+
+  function getCloudGoogleFont(nameOrId) {
+    if (typeof nameOrId !== 'string') return null;
+    var trimmed = nameOrId.trim().toLowerCase();
+    if (!trimmed) return null;
+    return CLOUD_GOOGLE_FONT_BY_ID[trimmed] || CLOUD_GOOGLE_FONT_BY_FAMILY[trimmed] || null;
+  }
+
+  function isCloudGoogleFont(nameOrId) {
+    return Boolean(getCloudGoogleFont(nameOrId));
+  }
+
+  function resolveCloudGoogleFont(fontName, fontId) {
+    var trimmedId = typeof fontId === 'string' ? fontId.trim() : '';
+    if (trimmedId) {
+      if (trimmedId.toLowerCase().indexOf(CLOUD_GOOGLE_FONT_PREFIX) === 0) {
+        return getCloudGoogleFont(trimmedId);
+      }
+      return null;
+    }
+    return getCloudGoogleFont(fontName);
+  }
 
   var LEGACY_SITE_DISABLE_KEY = 'fontChangerDisabled';
   var SITE_DISABLED_PREFIX = 'siteDisabled:';
@@ -112,6 +198,7 @@
     return {
       fontMode: normalizeFontMode(src.fontMode),
       selectedFont: typeof src.selectedFont === 'string' ? src.selectedFont : '',
+      selectedFontId: typeof src.selectedFontId === 'string' ? src.selectedFontId : '',
       advancedFontConfig: createAdvancedFontConfig(src.advancedFontConfig),
     };
   }
@@ -766,7 +853,8 @@
         pushFontFamily(stack, cjkFamily || CJK_FONT_FAMILY);
       }
       if (cfg.latinFont || cfg.latinFontId) {
-        pushFontFamily(stack, latinFamily || LATIN_FONT_FAMILY);
+        var cloudLatin = resolveCloudGoogleFont(cfg.latinFont, cfg.latinFontId);
+        pushFontFamily(stack, cloudLatin ? cloudLatin.family : (latinFamily || LATIN_FONT_FAMILY));
       }
       stack.push(FALLBACK_STACK);
       return stack.join(', ');
@@ -821,6 +909,120 @@
       .join(', ');
   }
 
+  function populateFontSelect(opts) {
+    var o = opts || {};
+    var doc = o.doc;
+    var selectEl = o.selectEl;
+    if (!doc || !selectEl) return;
+
+    var systemFonts = Array.isArray(o.systemFonts) ? o.systemFonts : [];
+    var sortLoc = o.locale === 'zh-Hant' ? 'zh-Hant' : 'en';
+    var storedName = typeof o.storedName === 'string' ? o.storedName : '';
+    var storedFontId = typeof o.storedFontId === 'string' ? o.storedFontId : '';
+    var includeCloudFonts = Boolean(o.includeCloudFonts);
+
+    selectEl.textContent = '';
+
+    var defaultOpt = doc.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = o.defaultLabel || 'System default font';
+    selectEl.add(defaultOpt);
+
+    function appendOptionGroup(groupLabel, optionNodes) {
+      if (!optionNodes.length) return;
+      if (typeof selectEl.appendChild === 'function') {
+        var groupEl = doc.createElement('optgroup');
+        if (groupEl) {
+          groupEl.label = groupLabel;
+          for (var g = 0; g < optionNodes.length; g++) {
+            groupEl.appendChild(optionNodes[g]);
+          }
+          selectEl.appendChild(groupEl);
+          return;
+        }
+      }
+      for (var k = 0; k < optionNodes.length; k++) {
+        selectEl.add(optionNodes[k]);
+      }
+    }
+
+    var sorted = systemFonts.slice().sort(function (a, b) {
+      return String(a.displayName || '').localeCompare(String(b.displayName || ''), sortLoc);
+    });
+    var sysOptionNodes = [];
+    for (var i = 0; i < sorted.length; i++) {
+      var font = sorted[i];
+      var opt = doc.createElement('option');
+      opt.value = font.displayName;
+      opt.textContent = font.displayName;
+      opt.dataset.fontId = font.fontId;
+      sysOptionNodes.push(opt);
+    }
+    if (includeCloudFonts) {
+      appendOptionGroup(o.systemGroupLabel || 'System Fonts', sysOptionNodes);
+      var cloudOptionNodes = [];
+      for (var c = 0; c < CLOUD_GOOGLE_FONTS.length; c++) {
+        var cf = CLOUD_GOOGLE_FONTS[c];
+        var cOpt = doc.createElement('option');
+        cOpt.value = cf.family;
+        cOpt.textContent = cf.family;
+        cOpt.dataset.fontId = cf.id;
+        cOpt.dataset.cloudFont = '1';
+        cloudOptionNodes.push(cOpt);
+      }
+      appendOptionGroup(o.cloudGroupLabel || 'Cloud Fonts (Google Fonts)', cloudOptionNodes);
+    } else {
+      for (var s = 0; s < sysOptionNodes.length; s++) {
+        selectEl.add(sysOptionNodes[s]);
+      }
+    }
+
+    if (!storedName && !storedFontId) {
+      selectEl.selectedIndex = 0;
+      selectEl.value = '';
+      return;
+    }
+
+    var options = Array.from(selectEl.options || []);
+    var isExplicitCloud = storedFontId.toLowerCase().indexOf(CLOUD_GOOGLE_FONT_PREFIX) === 0;
+    var matchIdx = -1;
+    if (isExplicitCloud) {
+      matchIdx = options.findIndex(function (optNode) {
+        return optNode.dataset && optNode.dataset.fontId === storedFontId;
+      });
+    } else if (storedFontId) {
+      matchIdx = options.findIndex(function (optNode) {
+        if (optNode.dataset && optNode.dataset.cloudFont === '1') return false;
+        return optNode.value === storedName || (optNode.dataset && optNode.dataset.fontId === storedFontId);
+      });
+    } else {
+      matchIdx = options.findIndex(function (optNode) {
+        return optNode.dataset && optNode.dataset.cloudFont !== '1' && optNode.value === storedName;
+      });
+      if (matchIdx === -1) {
+        matchIdx = options.findIndex(function (optNode) {
+          return optNode.value === storedName;
+        });
+      }
+    }
+
+    if (matchIdx !== -1) {
+      selectEl.selectedIndex = matchIdx;
+      selectEl.value = options[matchIdx].value;
+      return;
+    }
+
+    var labelName = storedName || storedFontId;
+    var missingOpt = doc.createElement('option');
+    missingOpt.value = labelName;
+    missingOpt.dataset.fontId = storedFontId || labelName;
+    missingOpt.dataset.unavailable = '1';
+    missingOpt.textContent = (o.unavailableLabel || '{font} (Not installed on this device)').replace('{font}', labelName);
+    selectEl.add(missingOpt, selectEl.options.length > 1 ? selectEl.options[1] : null);
+    selectEl.selectedIndex = 1;
+    selectEl.value = labelName;
+  }
+
   function normalizeLigatureText(text) {
     return String(text || '')
       .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
@@ -833,6 +1035,9 @@
     FONT_MODE_BASIC: FONT_MODE_BASIC,
     FONT_MODE_ADVANCED: FONT_MODE_ADVANCED,
     STORAGE_KEYS: STORAGE_KEYS,
+    CLOUD_GOOGLE_FONT_PREFIX: CLOUD_GOOGLE_FONT_PREFIX,
+    CLOUD_GOOGLE_FONT_ATTR: CLOUD_GOOGLE_FONT_ATTR,
+    CLOUD_GOOGLE_FONTS: CLOUD_GOOGLE_FONTS,
     LEGACY_SITE_DISABLE_KEY: LEGACY_SITE_DISABLE_KEY,
     SITE_DISABLED_PREFIX: SITE_DISABLED_PREFIX,
     SITE_FONT_PREFIX: SITE_FONT_PREFIX,
@@ -855,6 +1060,9 @@
     createSiteFontRule: createSiteFontRule,
     isSiteFontRuleEmpty: isSiteFontRuleEmpty,
     resolveEffectiveFontSettings: resolveEffectiveFontSettings,
+    getCloudGoogleFont: getCloudGoogleFont,
+    isCloudGoogleFont: isCloudGoogleFont,
+    resolveCloudGoogleFont: resolveCloudGoogleFont,
     siteDisabledKey: siteDisabledKey,
     siteFontKey: siteFontKey,
     parseUnicodeRangeString: parseUnicodeRangeString,
@@ -869,6 +1077,7 @@
     getFontStack: getFontStack,
     parseFontFamilyList: parseFontFamilyList,
     serializeFontFamilyList: serializeFontFamilyList,
+    populateFontSelect: populateFontSelect,
     normalizeLigatureText: normalizeLigatureText,
   });
 

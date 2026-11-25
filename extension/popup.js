@@ -29,6 +29,8 @@
       previewTitle: '即時預覽',
       reset: '重設',
       defaultFontOption: '系統預設字體',
+      systemFontsGroup: '本機字體',
+      cloudFontsGroup: '雲端字體 (Google Fonts・按需載入)',
       unavailableFontLabel: '{font}（本機未安裝）',
       applyError: '無法套用字體，請重新整理此分頁後再試。',
       restrictedPageError: '這個頁面不允許擴充套件改字體，例如瀏覽器內建頁或受限制頁面。',
@@ -71,6 +73,8 @@
       previewTitle: 'Live preview',
       reset: 'Reset',
       defaultFontOption: 'System default font',
+      systemFontsGroup: 'System Fonts',
+      cloudFontsGroup: 'Cloud Fonts (Google Fonts · On-Demand)',
       unavailableFontLabel: '{font} (Not installed on this device)',
       applyError: 'Unable to apply the font. Reload this tab and try again.',
       restrictedPageError: 'This page does not allow extension font changes, such as browser internal or restricted pages.',
@@ -180,6 +184,7 @@
       editScope: 'global',
       fontMode: shared.FONT_MODE_BASIC,
       selectedFont: '',
+      selectedFontId: '',
       advancedFontConfig: shared.createAdvancedFontConfig(),
       siteFontRule: null,
       siteFontDraft: shared.createSiteFontRule(),
@@ -209,6 +214,7 @@
       return shared.createSiteFontRule({
         fontMode: state.fontMode,
         selectedFont: state.selectedFont,
+        selectedFontId: state.selectedFontId,
         advancedFontConfig: state.advancedFontConfig,
       });
     }
@@ -282,70 +288,37 @@
       }
     }
 
-    function populateSelectWithFonts(selectEl, storedName, storedFontId) {
+    function populateSelectWithFonts(selectEl, storedName, storedFontId, includeCloudFonts) {
       var msgs = getMsgs();
-      var sortLoc = state.locale === 'zh-Hant' ? 'zh-Hant' : 'en';
-      selectEl.textContent = '';
-
-      var defaultOpt = doc.createElement('option');
-      defaultOpt.value = '';
-      defaultOpt.textContent = msgs.defaultFontOption;
-      selectEl.add(defaultOpt);
-
-      var sorted = state.systemFonts.slice().sort(function (a, b) {
-        return String(a.displayName || '').localeCompare(String(b.displayName || ''), sortLoc);
+      shared.populateFontSelect({
+        doc: doc,
+        selectEl: selectEl,
+        systemFonts: state.systemFonts,
+        locale: state.locale,
+        defaultLabel: msgs.defaultFontOption,
+        systemGroupLabel: msgs.systemFontsGroup,
+        cloudGroupLabel: msgs.cloudFontsGroup,
+        unavailableLabel: msgs.unavailableFontLabel,
+        storedName: storedName,
+        storedFontId: storedFontId,
+        includeCloudFonts: Boolean(includeCloudFonts),
       });
-
-      for (var i = 0; i < sorted.length; i++) {
-        var font = sorted[i];
-        var opt = doc.createElement('option');
-        opt.value = font.displayName;
-        opt.textContent = font.displayName;
-        opt.dataset.fontId = font.fontId;
-        selectEl.add(opt);
-      }
-
-      if (!storedName && !storedFontId) {
-        selectEl.selectedIndex = 0;
-        selectEl.value = '';
-        return;
-      }
-
-      var options = Array.from(selectEl.options);
-      var matchIdx = options.findIndex(function (o) {
-        return o.value === storedName || (storedFontId && o.dataset.fontId === storedFontId);
-      });
-
-      if (matchIdx !== -1) {
-        selectEl.selectedIndex = matchIdx;
-        selectEl.value = options[matchIdx].value;
-        return;
-      }
-
-      // Preserve synced font from another OS without overwriting chrome.storage.sync.
-      var labelName = storedName || storedFontId;
-      var missingOpt = doc.createElement('option');
-      missingOpt.value = labelName;
-      missingOpt.dataset.fontId = storedFontId || labelName;
-      missingOpt.dataset.unavailable = '1';
-      missingOpt.textContent = msgs.unavailableFontLabel.replace('{font}', labelName);
-      selectEl.add(missingOpt, selectEl.options.length > 1 ? selectEl.options[1] : null);
-      selectEl.selectedIndex = 1;
-      selectEl.value = labelName;
     }
 
     function renderFontSelectors() {
       var activeCfg = getActiveEditConfig();
-      populateSelectWithFonts(fontSelect, activeCfg.selectedFont, activeCfg.selectedFont);
+      populateSelectWithFonts(fontSelect, activeCfg.selectedFont, activeCfg.selectedFontId, true);
       populateSelectWithFonts(
         advancedCjkSelect,
         activeCfg.advancedFontConfig.cjkFont || activeCfg.advancedFontConfig.cjkFontId,
-        activeCfg.advancedFontConfig.cjkFontId
+        activeCfg.advancedFontConfig.cjkFontId,
+        false
       );
       populateSelectWithFonts(
         advancedLatinSelect,
         activeCfg.advancedFontConfig.latinFont || activeCfg.advancedFontConfig.latinFontId,
-        activeCfg.advancedFontConfig.latinFontId
+        activeCfg.advancedFontConfig.latinFontId,
+        true
       );
     }
 
@@ -418,8 +391,55 @@
       setStatus(msgs.statusEnabled.replace('{font}', activeName), 'status-active');
     }
 
+    function syncPopupCloudFontLink(previewCfg) {
+      if (!doc || !doc.head) return;
+      var cloudFont = previewCfg.fontMode === shared.FONT_MODE_ADVANCED
+        ? shared.resolveCloudGoogleFont(
+            previewCfg.advancedFontConfig.latinFont,
+            previewCfg.advancedFontConfig.latinFontId
+          )
+        : shared.resolveCloudGoogleFont(previewCfg.selectedFont, previewCfg.selectedFontId);
+      var neededId = cloudFont ? cloudFont.id : '';
+      var alreadyPresent = false;
+      if (typeof doc.head.querySelectorAll === 'function') {
+        var existing = doc.head.querySelectorAll('[' + shared.CLOUD_GOOGLE_FONT_ATTR + ']');
+        for (var i = 0; i < existing.length; i++) {
+          var node = existing[i];
+          var attrVal = typeof node.getAttribute === 'function' ? node.getAttribute(shared.CLOUD_GOOGLE_FONT_ATTR) : '';
+          if (neededId && attrVal === neededId && !alreadyPresent) {
+            alreadyPresent = true;
+          } else if (node && node.parentNode) {
+            node.parentNode.removeChild(node);
+          }
+        }
+      } else if (Array.isArray(doc.head.children)) {
+        for (var j = doc.head.children.length - 1; j >= 0; j--) {
+          var child = doc.head.children[j];
+          var childAttr = child && typeof child.getAttribute === 'function'
+            ? child.getAttribute(shared.CLOUD_GOOGLE_FONT_ATTR)
+            : '';
+          if (!childAttr) continue;
+          if (neededId && childAttr === neededId && !alreadyPresent) {
+            alreadyPresent = true;
+          } else {
+            doc.head.children.splice(j, 1);
+          }
+        }
+      }
+      if (!cloudFont || alreadyPresent || typeof doc.createElement !== 'function') return;
+      var link = doc.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = cloudFont.googleFontsUrl;
+      if (typeof link.setAttribute === 'function') {
+        link.setAttribute(shared.CLOUD_GOOGLE_FONT_ATTR, cloudFont.id);
+        link.setAttribute('referrerpolicy', 'no-referrer');
+      }
+      doc.head.appendChild(link);
+    }
+
     function renderPreviewStyles() {
       var previewCfg = getActiveEditConfig();
+      syncPopupCloudFontLink(previewCfg);
       var stack = shared.getFontStack(
         previewCfg.fontMode,
         previewCfg.selectedFont,
@@ -431,6 +451,7 @@
       var faceCss = '';
       if (previewCfg.fontMode === shared.FONT_MODE_ADVANCED) {
         var cfg = previewCfg.advancedFontConfig;
+        var isCloudLatin = Boolean(shared.resolveCloudGoogleFont(cfg.latinFont, cfg.latinFontId));
         if (cfg.cjkFont || cfg.cjkFontId) {
           var cjkSlots = previewSlotCache.get(String(cfg.cjkFont || '') + '\0' + String(cfg.cjkFontId || ''));
           faceCss += shared.buildRestrictedFontFaceSetCss(
@@ -441,7 +462,7 @@
             cjkSlots
           );
         }
-        if (cfg.latinFont || cfg.latinFontId) {
+        if (!isCloudLatin && (cfg.latinFont || cfg.latinFontId)) {
           var latinSlots = previewSlotCache.get(String(cfg.latinFont || '') + '\0' + String(cfg.latinFontId || ''));
           faceCss += shared.buildRestrictedFontFaceSetCss(
             shared.PREVIEW_LATIN_FONT_FAMILY,
@@ -457,7 +478,7 @@
         if (cfg.cjkFont || cfg.cjkFontId) {
           probes.push(shared.probeLocalFontSlots(cfg.cjkFont, cfg.cjkFontId, previewSlotCache));
         }
-        if (cfg.latinFont || cfg.latinFontId) {
+        if (!isCloudLatin && (cfg.latinFont || cfg.latinFontId)) {
           probes.push(shared.probeLocalFontSlots(cfg.latinFont, cfg.latinFontId, previewSlotCache));
         }
         if (probes.length) {
@@ -479,6 +500,7 @@
       var previewCfg = getActiveEditConfig();
       if (previewCfg.fontMode !== shared.FONT_MODE_ADVANCED) return;
       var cfg = previewCfg.advancedFontConfig;
+      var isCloudLatin = Boolean(shared.resolveCloudGoogleFont(cfg.latinFont, cfg.latinFontId));
       var faceCss = '';
       if (cfg.cjkFont || cfg.cjkFontId) {
         var cjkSlots = previewSlotCache.get(String(cfg.cjkFont || '') + '\0' + String(cfg.cjkFontId || ''));
@@ -490,7 +512,7 @@
           cjkSlots
         );
       }
-      if (cfg.latinFont || cfg.latinFontId) {
+      if (!isCloudLatin && (cfg.latinFont || cfg.latinFontId)) {
         var latinSlots = previewSlotCache.get(String(cfg.latinFont || '') + '\0' + String(cfg.latinFontId || ''));
         faceCss += shared.buildRestrictedFontFaceSetCss(
           shared.PREVIEW_LATIN_FONT_FAMILY,
@@ -637,6 +659,7 @@
         editScope: state.editScope,
         fontMode: state.fontMode,
         selectedFont: state.selectedFont,
+        selectedFontId: state.selectedFontId,
         advancedFontConfig: shared.createAdvancedFontConfig(state.advancedFontConfig),
         siteFontRule: state.siteFontRule ? shared.createSiteFontRule(state.siteFontRule) : null,
         siteFontDraft: shared.createSiteFontRule(state.siteFontDraft),
@@ -649,6 +672,7 @@
       state.editScope = snap.editScope;
       state.fontMode = snap.fontMode;
       state.selectedFont = snap.selectedFont;
+      state.selectedFontId = snap.selectedFontId || '';
       state.advancedFontConfig = snap.advancedFontConfig;
       state.siteFontRule = snap.siteFontRule;
       state.siteFontDraft = snap.siteFontDraft;
@@ -657,11 +681,13 @@
     }
 
     function readSelectsIntoConfig(targetMode) {
+      var basicOpt = fontSelect.selectedOptions && fontSelect.selectedOptions[0];
       var cjkOpt = advancedCjkSelect.selectedOptions && advancedCjkSelect.selectedOptions[0];
       var latinOpt = advancedLatinSelect.selectedOptions && advancedLatinSelect.selectedOptions[0];
       return shared.createSiteFontRule({
         fontMode: targetMode,
         selectedFont: fontSelect.value || '',
+        selectedFontId: basicOpt && basicOpt.dataset ? (basicOpt.dataset.fontId || '') : '',
         advancedFontConfig: {
           cjkFont: advancedCjkSelect.value || '',
           cjkFontId: cjkOpt && cjkOpt.dataset ? (cjkOpt.dataset.fontId || '') : '',
@@ -683,6 +709,7 @@
       }
       var globalParsed = readSelectsIntoConfig(state.fontMode);
       state.selectedFont = globalParsed.selectedFont;
+      state.selectedFontId = globalParsed.selectedFontId;
       state.advancedFontConfig = globalParsed.advancedFontConfig;
     }
 
@@ -800,6 +827,7 @@
       var msgs = getMsgs();
       var payload = {};
       payload[shared.STORAGE_KEYS.SELECTED_FONT] = state.selectedFont;
+      payload[shared.STORAGE_KEYS.SELECTED_FONT_ID] = state.selectedFontId;
       payload[shared.STORAGE_KEYS.IS_ENABLED] = state.isEnabled;
       payload[shared.STORAGE_KEYS.FONT_MODE] = state.fontMode;
       payload[shared.STORAGE_KEYS.ADVANCED_FONT_CONFIG] = state.advancedFontConfig;
@@ -1051,6 +1079,7 @@
         var prev = takeStateSnapshot();
         state.editScope = 'global';
         state.selectedFont = '';
+        state.selectedFontId = '';
         state.fontMode = shared.FONT_MODE_BASIC;
         state.advancedFontConfig = shared.createAdvancedFontConfig();
         state.isEnabled = false;
@@ -1134,6 +1163,7 @@
         var keys = [
           shared.STORAGE_KEYS.UI_LANGUAGE,
           shared.STORAGE_KEYS.SELECTED_FONT,
+          shared.STORAGE_KEYS.SELECTED_FONT_ID,
           shared.STORAGE_KEYS.IS_ENABLED,
           shared.STORAGE_KEYS.FONT_MODE,
           shared.STORAGE_KEYS.ADVANCED_FONT_CONFIG,
@@ -1152,6 +1182,9 @@
             }
             state.selectedFont = typeof data[shared.STORAGE_KEYS.SELECTED_FONT] === 'string'
               ? data[shared.STORAGE_KEYS.SELECTED_FONT]
+              : '';
+            state.selectedFontId = typeof data[shared.STORAGE_KEYS.SELECTED_FONT_ID] === 'string'
+              ? data[shared.STORAGE_KEYS.SELECTED_FONT_ID]
               : '';
             state.isEnabled = Boolean(data[shared.STORAGE_KEYS.IS_ENABLED]);
             state.fontMode = shared.normalizeFontMode(data[shared.STORAGE_KEYS.FONT_MODE]);

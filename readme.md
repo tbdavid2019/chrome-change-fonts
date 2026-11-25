@@ -6,7 +6,7 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 功能
 
-- 從系統可用字體中挑選要套用的字體
+- 從系統可用字體中挑選要套用的字體，或選用內建清單的 10 款 **Google Fonts 雲端精選字體**（按需載入，免安裝字體即可跨裝置使用；若目標網站設有嚴格 CSP 限制外部字體則自動退回系統字體）
 - 保留最簡單的單一字體模式，適合大多數使用者
 - 提供 `單一字體` / `CJK / 英數分開` 內部 tab，可分開指定 `CJK（中日韓）` 與 `非 CJK（英數與標點）`
 - 啟用或停用目前分頁的字體替換
@@ -17,7 +17,14 @@ Website Font Changer 333 是一個用來替換網頁字體的 Chrome/Brave 擴�
 
 ## 版本
 
-目前版本：`2.1.2`
+目前版本：`2.2.0`
+
+`2.2.0` 更新項目：
+
+- **新增 10 款 Google Fonts 雲端精選字體（按需載入，無須新增擴充套件權限）**：
+  - 於「單一字體」與「CJK / 英數分開 → 非 CJK」選單及「網站規則管理頁」新增 `雲端字體 (Google Fonts・按需載入)` 分組，提供 `JetBrains Mono`、`Fira Code`、`Google Sans Code`、`Geist Mono`、`Source Code Pro`、`Intel One Mono`、`Lilex`、`Atkinson Hyperlegible Mono`、`Atkinson Hyperlegible` 與 `Anonymous Pro`。
+  - 採用與本機字體隔離的 `gf:*` 識別策略：使用預設或本機系統字體時維持零外部請求；僅在選用雲端字體時才於彈窗預覽與目前頁面按需注入帶有 `referrerpolicy="no-referrer"` 的 Google Fonts 樣式表，並在切換／停用時完整清理；亦不觸發冗餘的圖示重掃。
+  - 同步更新 `PRIVACY_POLICY.md` 揭露按需連線至 Google Fonts CDN 之行為（少數設定嚴格 `font-src`/`style-src` CSP 的網站可能會退回系統字體）。
 
 `2.1.2` 修正項目：
 

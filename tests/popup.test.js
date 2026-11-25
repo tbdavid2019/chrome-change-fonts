@@ -7,9 +7,12 @@ const popupMod = require('../extension/popup.js');
 
 function createPopupHarness(options = {}) {
   const syncStore = Object.assign({}, options.syncStorage || {});
+  const localStore = Object.assign({}, options.localStorage || {});
   const calls = {
     syncSet: [],
     syncRemove: [],
+    localSet: [],
+    localRemove: [],
     sendMessage: [],
     executeScript: [],
     tabsCreate: [],
@@ -114,7 +117,7 @@ function createPopupHarness(options = {}) {
     'resetButton', 'modeHintText', 'basicModeTab', 'advancedModeTab', 'basicSettingsPanel',
     'advancedSettingsPanel', 'advancedCjkLabel', 'advancedLatinLabel',
     'advancedCjkSelect', 'advancedLatinSelect', 'enableCheckbox', 'siteDisableCheckbox',
-    'globalScopeTab', 'siteScopeTab', 'clearSiteFontBtn', 'manageSitesBtn', 'feedbackBtn',
+    'globalScopeTab', 'siteScopeTab', 'clearSiteFontBtn', 'manageSitesBtn', 'whatsNewBtn', 'feedbackBtn',
   ];
 
   const byId = new Map();
@@ -159,6 +162,9 @@ function createPopupHarness(options = {}) {
         return {
           content_scripts: [{ js: ['shared.js', 'content.js'] }],
         };
+      },
+      getURL(relPath) {
+        return 'chrome-extension://popup-test-id/' + relPath;
       },
       openOptionsPage() {
         calls.openOptionsPage += 1;
@@ -271,11 +277,37 @@ function createPopupHarness(options = {}) {
           if (cb) cb();
         },
       },
+      local: {
+        get(keys, cb) {
+          const out = {};
+          const list = Array.isArray(keys) ? keys : Object.keys(keys || {});
+          for (const k of list) {
+            if (Object.prototype.hasOwnProperty.call(localStore, k)) {
+              out[k] = localStore[k];
+            }
+          }
+          cb(out);
+        },
+        set(items, cb) {
+          calls.localSet.push(items);
+          Object.assign(localStore, items);
+          lastError = null;
+          if (cb) cb();
+        },
+        remove(keys, cb) {
+          calls.localRemove.push(keys);
+          for (const k of Array.isArray(keys) ? keys : [keys]) {
+            delete localStore[k];
+          }
+          lastError = null;
+          if (cb) cb();
+        },
+      },
     },
   };
 
   const controller = popupMod.initPopup({ document: doc, window: win, chrome });
-  return { controller, byId, calls, syncStore, setNextError(msg) { options.nextSetError = msg; } };
+  return { controller, byId, calls, syncStore, localStore, setNextError(msg) { options.nextSetError = msg; } };
 }
 
 test('hydrateUi performs zero storage.sync.set writes and skips GET_PAGE_STATE when globally disabled', async () => {
@@ -575,4 +607,35 @@ test('Popup exposes curated Cloud Google Fonts, injects preview stylesheet on de
   fontSelect.dispatch('change');
   assert.equal(h.syncStore.selectedFont, 'Arial');
   assert.equal(h.syncStore.selectedFontId, 'Arial');
+});
+
+test("Popup opens What's New once in a background tab after update, stays silent in incognito, and opens in foreground on button click", async () => {
+  const h = createPopupHarness({
+    localStorage: { whatsNewPendingVersion: '2.2.0' },
+  });
+  await h.controller.ready;
+
+  assert.equal(h.localStore.whatsNewPendingVersion, undefined);
+  assert.equal(h.localStore.whatsNewSeenVersion, '2.2.0');
+  assert.deepEqual(h.calls.tabsCreate[0], {
+    url: 'chrome-extension://popup-test-id/whats-new.html',
+    active: false,
+  });
+
+  // Clicking What's New button opens the page in foreground.
+  h.byId.get('whatsNewBtn').dispatch('click');
+  assert.deepEqual(h.calls.tabsCreate.at(-1), {
+    url: 'chrome-extension://popup-test-id/whats-new.html',
+    active: true,
+  });
+
+  // Incognito popup open must perform zero local storage writes and must not auto-open What's New.
+  const incH = createPopupHarness({
+    activeTab: { id: 91, url: 'https://example.com', incognito: true },
+    localStorage: { whatsNewPendingVersion: '2.2.0' },
+  });
+  await incH.controller.ready;
+  assert.equal(incH.calls.localSet.length, 0);
+  assert.equal(incH.calls.localRemove.length, 0);
+  assert.equal(incH.calls.tabsCreate.length, 0);
 });

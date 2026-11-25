@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>更新說明與使用指引 What's New - 改字體 333</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: 'JetBrains Mono', 'Gen Jyuu Gothic', 'Noto Sans TC', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+      --saffron: #ffb010;
+      --saffron-soft: #ffe499;
+      --deep-blue: #17324d;
+      --deep-blue-dark: #0f2337;
+      --clay: #a9471d;
+      --warm-cream: #fff9e8;
+      --canvas: #fff0cc;
+      --ink: #2b251a;
+
+      --bg-page: var(--canvas);
+      --card-bg: var(--warm-cream);
+      --card-elevated: #fffefa;
+      --card-muted: #fcf4e0;
+
+      --border-subtle: #e2cca0;
+      --border-default: #d6bc7c;
+      --border-strong: #a48645;
+      --border-focus: var(--deep-blue);
+
+      --text-main: var(--ink);
+      --text-muted: #594e36;
+      --text-heading: var(--deep-blue-dark);
+
+      --btn-primary-bg: var(--deep-blue);
+      --btn-primary-text: #ffffff;
+      --shadow-sm: 0 2px 10px rgba(43, 37, 26, 0.08);
+      --focus-ring: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--border-focus);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-page: #0c1927;
+        --card-bg: #13273c;
+        --card-elevated: #1b3450;
+        --card-muted: #172e47;
+
+        --border-subtle: #24415f;
+        --border-default: #2b4a6b;
+        --border-strong: #3e6a98;
+        --border-focus: var(--saffron);
+
+        --text-main: #fff9e8;
+        --text-muted: #cbd5e1;
+        --text-heading: var(--saffron);
+
+        --btn-primary-bg: var(--saffron);
+        --btn-primary-text: #0c1927;
+        --shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.35);
+        --focus-ring: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--border-focus);
+      }
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px 16px 48px;
+      background: var(--bg-page);
+      color: var(--text-main);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page-shell {
+      max-width: 920px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .top-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      background: var(--card-bg);
+      border: 1px solid var(--border-default);
+      border-radius: 14px;
+      padding: 16px 20px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--saffron);
+      color: #0c1927;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1.5px solid var(--deep-blue-dark);
+    }
+
+    .version-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--saffron-soft);
+      color: var(--deep-blue-dark);
+      border: 1px solid var(--border-default);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .version-badge {
+        background: var(--card-elevated);
+        color: var(--saffron);
+        border-color: var(--border-strong);
+      }
+    }
+
+    .top-header h1 {
+      margin: 0;
+      font-size: 20px;
+      color: var(--text-heading);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1.5px solid var(--border-strong);
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      background: var(--card-elevated);
+      color: var(--text-heading);
+      min-height: 34px;
+      transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .pill-btn:hover {
+      background: var(--saffron);
+      color: #0c1927;
+      border-color: var(--saffron);
+    }
+
+    .pill-btn.is-primary {
+      background: var(--btn-primary-bg);
+      color: var(--btn-primary-text);
+      border-color: var(--btn-primary-bg);
+    }
+
+    .pill-btn.is-primary:hover {
+      filter: brightness(1.08);
+    }
+
+    .pill-btn:focus-visible,
+    .filter-btn:focus-visible,
+    .jump-link:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+    }
+
+    .guide-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: var(--card-bg);
+      border: 1px solid var(--border-default);
+      border-radius: 12px;
+      padding: 12px 16px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .jump-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .guide-bar-label {
+      font-size: 12.5px;
+      font-weight: 800;
+      color: var(--text-muted);
+      margin-right: 4px;
+    }
+
+    .jump-link {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-heading);
+      background: var(--card-muted);
+      border: 1px solid var(--border-subtle);
+      text-decoration: none;
+    }
+
+    .jump-link:hover {
+      border-color: var(--border-strong);
+      background: var(--saffron-soft);
+      color: #0c1927;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .jump-link:hover {
+        background: var(--card-elevated);
+        color: var(--saffron);
+      }
+    }
+
+    .filter-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px;
+      background: var(--card-muted);
+      border: 1px solid var(--border-default);
+      border-radius: 999px;
+    }
+
+    .filter-btn {
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12.5px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+
+    .filter-btn.is-active {
+      background: var(--btn-primary-bg);
+      color: var(--btn-primary-text);
+    }
+
+    .lang-sections {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .lang-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-default);
+      border-radius: 16px;
+      padding: 20px 22px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .lang-card[hidden] {
+      display: none;
+    }
+
+    .lang-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 12px;
+    }
+
+    .lang-card-header h2 {
+      margin: 0;
+      font-size: 18px;
+      color: var(--text-heading);
+    }
+
+    .lang-tag {
+      font-size: 11.5px;
+      font-weight: 800;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: var(--card-muted);
+      color: var(--text-muted);
+      border: 1px solid var(--border-default);
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    @media (max-width: 680px) {
+      .feature-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .info-box {
+      background: var(--card-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+
+    .info-box h3 {
+      margin: 0 0 8px;
+      font-size: 14.5px;
+      color: var(--text-heading);
+    }
+
+    .info-box p,
+    .info-box ul,
+    .info-box ol {
+      margin: 0;
+      font-size: 13.5px;
+      color: var(--text-main);
+    }
+
+    .info-box ul,
+    .info-box ol {
+      padding-left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .font-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .font-pill {
+      font-size: 12px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 6px;
+      background: var(--card-muted);
+      border: 1px solid var(--border-default);
+      color: var(--text-heading);
+    }
+
+    .callout-note {
+      background: var(--card-muted);
+      border-left: 4px solid var(--clay);
+      border-radius: 8px;
+      padding: 11px 14px;
+      font-size: 13px;
+      color: var(--text-main);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .callout-note {
+        border-left-color: var(--saffron);
+      }
+    }
+
+    code {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 0.9em;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--card-muted);
+      border: 1px solid var(--border-subtle);
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="top-header">
+      <div class="brand-group">
+        <span class="brand-badge" aria-hidden="true">333</span>
+        <h1>改字體 333 · 更新說明與使用指引 / What's New &amp; Guide</h1>
+        <span class="version-badge" id="versionBadge">v2.2.0</span>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="pill-btn is-primary" id="openOptionsBtn">網站規則 / Site Rules</button>
+        <a class="pill-btn" id="openWikiBtn" href="https://wiki.david888.com/share/0aNzs6Zdl416TdIl18rKGw" target="_blank" rel="noopener noreferrer">字體指南 / Font Guide</a>
+        <a class="pill-btn" id="openFeedbackBtn" href="https://david888.com/contact" target="_blank" rel="noopener noreferrer">意見反應 / Feedback</a>
+      </div>
+    </header>
+
+    <nav class="guide-bar" aria-label="語言導覽與顯示切換 / Language navigation and filter">
+      <div class="jump-links">
+        <span class="guide-bar-label">快速導覽 / Jump to:</span>
+        <a class="jump-link" id="jumpZhLink" href="#section-zh">🇹🇼 繁體中文版與指引</a>
+        <a class="jump-link" id="jumpEnLink" href="#section-en">🇺🇸 English Notes &amp; Guide</a>
+      </div>
+      <div class="filter-group" role="group" aria-label="語言顯示模式 / Language view mode">
+        <button type="button" class="filter-btn is-active" id="viewBothBtn" data-lang-view="both">中英雙語 Both</button>
+        <button type="button" class="filter-btn" id="viewZhBtn" data-lang-view="zh-Hant">繁體中文</button>
+        <button type="button" class="filter-btn" id="viewEnBtn" data-lang-view="en">English</button>
+      </div>
+    </nav>
+
+    <main class="lang-sections" id="langSections">
+      <section class="lang-card" id="section-zh" lang="zh-Hant" aria-labelledby="heading-zh">
+        <div class="lang-card-header">
+          <h2 id="heading-zh">🇹🇼 繁體中文 · 版本更新亮點與快速使用指引</h2>
+          <span class="lang-tag">繁體中文版</span>
+        </div>
+
+        <div class="feature-grid">
+          <article class="info-box">
+            <h3>✨ v2.2.0 更新重點（免裝字體也能換漂亮程式與閱讀字體）</h3>
+            <ul>
+              <li><strong>新增 10 款精選 Google Fonts 雲端字體（置頂顯示）</strong>：打開彈窗字體選單即可在最上方看到「雲端字體 (Google Fonts・按需載入)」，不需在電腦預先安裝，換電腦或使用 Chromebook 都能跨裝置同步套用。</li>
+              <li><strong>按需載入・零多餘權限</strong>：選用「本機字體」或預設字體時<strong>完全不連網</strong>；只有選到雲端字體時才透過 <code>referrerpolicy="no-referrer"</code> 按需載入字型，不會傳送您正在瀏覽的網址。</li>
+              <li><strong>自動與「CJK / 英數分開」完美搭配</strong>：在分流模式中，中文保留您指定的本機字體，英數與標點可單獨選用 Google Fonts 雲端字體。</li>
+            </ul>
+            <div class="font-pills" aria-label="支援的 10 款雲端字體">
+              <span class="font-pill">JetBrains Mono</span>
+              <span class="font-pill">Fira Code</span>
+              <span class="font-pill">Google Sans Code</span>
+              <span class="font-pill">Geist Mono</span>
+              <span class="font-pill">Source Code Pro</span>
+              <span class="font-pill">Intel One Mono</span>
+              <span class="font-pill">Lilex</span>
+              <span class="font-pill">Atkinson Hyperlegible Mono</span>
+              <span class="font-pill">Atkinson Hyperlegible</span>
+              <span class="font-pill">Anonymous Pro</span>
+            </div>
+          </article>
+
+          <article class="info-box">
+            <h3>📖 4 步驟快速上手指引</h3>
+            <ol>
+              <li><strong>開啟擴充功能彈窗</strong>：點擊瀏覽器右上角 <code>333</code> 圖示（版本更新後首次開啟會自動於背景分頁打開本頁，不打斷您的操作）。</li>
+              <li><strong>挑選字體</strong>：從最上方「雲端字體」挑選免安裝字體，或從下方「本機字體」選擇電腦已安裝字體；需要中英混排時可切換至「CJK / 英數分開」。</li>
+              <li><strong>啟用與即時預覽</strong>：勾選「啟用字體替換」，並可直接在彈窗下方預覽區輸入文字測試字體效果。</li>
+              <li><strong>管理個別網站</strong>：可切換「僅此網站」指定特定網站專用字體，或勾選「此網站不生效」（圖示會顯示 <code>OFF</code> 徽章），並可隨時點「網站清單」統一管理規則。</li>
+            </ol>
+          </article>
+        </div>
+
+        <div class="callout-note">
+          <strong>貼心提醒：</strong>少數網站（例如 GitHub、銀行或企業內部系統）啟用了嚴格的 <code>Content-Security-Policy (font-src / style-src)</code>，瀏覽器會阻擋第三方雲端字體載入，屆時該網站會安全退回系統字體；若想在該類網站也強制換字體，建議在電腦安裝字體後從「本機字體」選單套用。
+        </div>
+      </section>
+
+      <section class="lang-card" id="section-en" lang="en" aria-labelledby="heading-en">
+        <div class="lang-card-header">
+          <h2 id="heading-en">🇺🇸 English · Release Highlights &amp; Quick Start Guide</h2>
+          <span class="lang-tag">English Version</span>
+        </div>
+
+        <div class="feature-grid">
+          <article class="info-box">
+            <h3>✨ What's New in v2.2.0</h3>
+            <ul>
+              <li><strong>10 Curated Google Fonts Listed at the Top</strong>: A dedicated <em>Cloud Fonts (Google Fonts · On-Demand)</em> group now appears right at the top of the font selector—no local OS font installation needed, and your synced font works across devices (Windows, macOS, Linux, Chromebook).</li>
+              <li><strong>On-Demand &amp; Privacy-First (Zero New Permissions)</strong>: Selecting default or local system fonts makes <strong>zero external requests</strong>. Only when a cloud font is active does the extension load Google Fonts with <code>referrerpolicy="no-referrer"</code> so your visited URL is never sent.</li>
+              <li><strong>Seamless CJK / Latin Split Support</strong>: Pair any local CJK font with a Google Font for Non-CJK text (Latin letters, digits, punctuation) in split mode.</li>
+            </ul>
+            <div class="font-pills" aria-label="10 supported cloud fonts">
+              <span class="font-pill">JetBrains Mono</span>
+              <span class="font-pill">Fira Code</span>
+              <span class="font-pill">Google Sans Code</span>
+              <span class="font-pill">Geist Mono</span>
+              <span class="font-pill">Source Code Pro</span>
+              <span class="font-pill">Intel One Mono</span>
+              <span class="font-pill">Lilex</span>
+              <span class="font-pill">Atkinson Hyperlegible Mono</span>
+              <span class="font-pill">Atkinson Hyperlegible</span>
+              <span class="font-pill">Anonymous Pro</span>
+            </div>
+          </article>
+
+          <article class="info-box">
+            <h3>📖 4-Step Quick Start Guide</h3>
+            <ol>
+              <li><strong>Open the Popup</strong>: Click the <code>333</code> toolbar icon (on the first click after an extension update, this page opens quietly in a background tab without closing your popup).</li>
+              <li><strong>Choose Your Font</strong>: Pick an instant cloud font from the top <em>Cloud Fonts</em> group or any locally installed font below; switch to <em>CJK / Latin split</em> to set separate fonts for CJK and Latin text.</li>
+              <li><strong>Enable &amp; Preview</strong>: Check <em>Enable font replacement</em> and test your typography directly inside the live preview box.</li>
+              <li><strong>Customize Per-Site Rules</strong>: Use <em>This site only</em> for per-site font overrides, toggle <em>Disable on this site</em> (shows an <code>OFF</code> badge), or open <em>Site list</em> to manage all rules in one place.</li>
+            </ol>
+          </article>
+        </div>
+
+        <div class="callout-note">
+          <strong>Note on Strict-CSP Websites:</strong> A few high-security websites (such as GitHub or banking/enterprise portals) enforce strict <code>font-src</code> / <code>style-src</code> Content-Security-Policy headers that block external Google Fonts. On those sites, the page safely falls back to system fonts; to override fonts there, install the font on your OS and select it from the <em>System Fonts</em> group.
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="whats-new.js"></script>
+</body>
+</html>

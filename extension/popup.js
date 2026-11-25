@@ -25,6 +25,7 @@
       scopeSiteActive: '僅此網站 ★',
       clearSiteFont: '恢復全域',
       manageSites: '網站清單',
+      whatsNew: '更新說明',
       feedback: '意見反應',
       previewTitle: '即時預覽',
       reset: '重設',
@@ -69,6 +70,7 @@
       scopeSiteActive: 'This site ★',
       clearSiteFont: 'Use global',
       manageSites: 'Site list',
+      whatsNew: "What's new",
       feedback: 'Feedback',
       previewTitle: 'Live preview',
       reset: 'Reset',
@@ -162,6 +164,7 @@
       siteScopeTab: doc.getElementById('siteScopeTab'),
       clearSiteFontBtn: doc.getElementById('clearSiteFontBtn'),
       manageSitesBtn: doc.getElementById('manageSitesBtn'),
+      whatsNewBtn: doc.getElementById('whatsNewBtn'),
       feedbackBtn: doc.getElementById('feedbackBtn'),
     };
     var fontSelect = doc.getElementById('fontSelect');
@@ -261,6 +264,8 @@
         ui.clearSiteFontBtn.hidden = !hasActiveSiteFontRule();
       }
       if (ui.manageSitesBtn) ui.manageSitesBtn.textContent = msgs.manageSites;
+      if (ui.whatsNewBtn) ui.whatsNewBtn.textContent = msgs.whatsNew;
+
       if (ui.feedbackBtn) {
         ui.feedbackBtn.textContent = msgs.feedback;
         if (typeof ui.feedbackBtn.setAttribute === 'function') {
@@ -1098,6 +1103,12 @@
         });
       }
 
+      if (ui.whatsNewBtn) {
+        ui.whatsNewBtn.addEventListener('click', function () {
+          openWhatsNewPage(true);
+        });
+      }
+
       if (ui.feedbackBtn) {
         ui.feedbackBtn.addEventListener('click', function (ev) {
           if (chromeApi && chromeApi.tabs && typeof chromeApi.tabs.create === 'function') {
@@ -1106,6 +1117,49 @@
           }
         });
       }
+    }
+
+    function openWhatsNewPage(active) {
+      if (!chromeApi || !chromeApi.tabs || typeof chromeApi.tabs.create !== 'function' ||
+          !chromeApi.runtime || typeof chromeApi.runtime.getURL !== 'function') {
+        return;
+      }
+      var pageName = (shared && shared.WHATS_NEW_PAGE) || 'whats-new.html';
+      chromeApi.tabs.create({
+        url: chromeApi.runtime.getURL(pageName),
+        active: Boolean(active),
+      });
+    }
+
+    function maybeOpenWhatsNewInBackground() {
+      if (state.incognito) return;
+      if (!chromeApi || !chromeApi.storage || !chromeApi.storage.local ||
+          typeof chromeApi.storage.local.get !== 'function' || !shared) {
+        return;
+      }
+      var pendingKey = shared.WHATS_NEW_PENDING_KEY || 'whatsNewPendingVersion';
+      var seenKey = shared.WHATS_NEW_SEEN_KEY || 'whatsNewSeenVersion';
+      chromeApi.storage.local.get([pendingKey, seenKey], function (localItems) {
+        if (chromeApi.runtime && chromeApi.runtime.lastError) return;
+        var pendingVer = localItems && typeof localItems[pendingKey] === 'string' ? localItems[pendingKey] : '';
+        if (!pendingVer) return;
+        var seenVer = localItems && typeof localItems[seenKey] === 'string' ? localItems[seenKey] : '';
+        if (typeof chromeApi.storage.local.remove === 'function') {
+          chromeApi.storage.local.remove(pendingKey, function () {
+            if (chromeApi.runtime) void chromeApi.runtime.lastError;
+          });
+        }
+        if (typeof chromeApi.storage.local.set === 'function') {
+          var seenPayload = {};
+          seenPayload[seenKey] = pendingVer;
+          chromeApi.storage.local.set(seenPayload, function () {
+            if (chromeApi.runtime) void chromeApi.runtime.lastError;
+          });
+        }
+        if (seenVer !== pendingVer) {
+          openWhatsNewPage(false);
+        }
+      });
     }
 
     function hydrateUi() {
@@ -1202,6 +1256,7 @@
             state.editScope = hasActiveSiteFontRule() && !state.siteDisabled ? 'site' : 'global';
 
             renderAllUi();
+            maybeOpenWhatsNewInBackground();
 
             if (!state.restricted && state.tabId && (state.incognito || state.isEnabled)) {
               chromeApi.tabs.sendMessage(

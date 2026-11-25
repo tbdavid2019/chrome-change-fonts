@@ -245,6 +245,8 @@ test('extension/ directory contains strictly runtime files with zero tests or de
     'popup.html',
     'popup.js',
     'shared.js',
+    'whats-new.html',
+    'whats-new.js',
   ]);
 
   const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_DIR, 'manifest.json'), 'utf8'));

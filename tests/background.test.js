@@ -209,3 +209,46 @@ test('background service worker caches volatile font slots with sanitization, bo
   ctrl.destroy();
   assert.equal(ctrl.getFontSlotsCacheSize(), 0);
 });
+
+test('background service worker records whatsNewPendingVersion on extension update only', () => {
+  const installedListeners = [];
+  const localStore = {};
+  const fakeChrome = {
+    runtime: {
+      getManifest() {
+        return { version: '2.2.0' };
+      },
+      onMessage: { addListener() {}, removeListener() {} },
+      onInstalled: {
+        addListener(fn) { installedListeners.push(fn); },
+        removeListener(fn) {
+          const i = installedListeners.indexOf(fn);
+          if (i !== -1) installedListeners.splice(i, 1);
+        },
+      },
+    },
+    storage: {
+      local: {
+        set(items, cb) {
+          Object.assign(localStore, items);
+          if (cb) cb();
+        },
+      },
+    },
+  };
+
+  const ctrl = bgMod.initBackground(fakeChrome);
+  assert.equal(installedListeners.length, 1);
+
+  installedListeners[0]({ reason: 'install' });
+  assert.equal(localStore.whatsNewPendingVersion, undefined);
+
+  installedListeners[0]({ reason: 'update', previousVersion: '2.2.0' });
+  assert.equal(localStore.whatsNewPendingVersion, undefined);
+
+  installedListeners[0]({ reason: 'update', previousVersion: '2.1.2' });
+  assert.equal(localStore.whatsNewPendingVersion, '2.2.0');
+
+  ctrl.destroy();
+  assert.equal(installedListeners.length, 0);
+});
